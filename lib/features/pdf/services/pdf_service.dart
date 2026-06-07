@@ -12,18 +12,19 @@ class PdfService {
     required String fileName,
     required List<ScannedPage> pages,
     required PdfPageFormat format,
+    required String toolType,
   }) async {
     final pdf = pw.Document();
 
-    for (var page in pages) {
-      final imageFile = page.displayFile;
+    for (final page in pages) {
       final image = pw.MemoryImage(
-        imageFile.readAsBytesSync(),
+        await page.processedFile!.readAsBytes(),
       );
 
       pdf.addPage(
         pw.Page(
           pageFormat: format,
+          margin: pw.EdgeInsets.zero,
           build: (pw.Context context) {
             return pw.Center(
               child: pw.Image(image, fit: pw.BoxFit.contain),
@@ -45,6 +46,7 @@ class PdfService {
       path: file.path,
       size: await file.length(),
       createdAt: DateTime.now(),
+      toolType: toolType,
     );
     
     await DatabaseService.insertFile(pdfModel);

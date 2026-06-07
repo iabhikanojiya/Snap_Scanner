@@ -4,8 +4,14 @@ import '../core/models/scanned_page.dart';
 
 class ScanProvider extends ChangeNotifier {
   List<ScannedPage> _pages = [];
+  String _toolType = 'scan_pdf';
 
   List<ScannedPage> get pages => _pages;
+  String get toolType => _toolType;
+
+  void setToolType(String type) {
+    _toolType = type;
+  }
 
   void addPage(ScannedPage page) {
     _pages.add(page);
@@ -36,6 +42,7 @@ class ScanProvider extends ChangeNotifier {
 
   void clearPages() {
     _pages = [];
+    _toolType = 'scan_pdf';
     notifyListeners();
   }
 }

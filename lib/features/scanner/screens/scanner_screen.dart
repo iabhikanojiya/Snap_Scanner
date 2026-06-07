@@ -27,6 +27,16 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    
+    // Reset provider for a new scan session
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final provider = Provider.of<ScanProvider>(context, listen: false);
+        provider.clearPages();
+        provider.setToolType('scan_pdf');
+      }
+    });
+
     _initCamera();
   }
 

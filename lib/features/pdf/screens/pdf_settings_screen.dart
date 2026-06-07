@@ -51,6 +51,7 @@ class _PdfSettingsScreenState extends State<PdfSettingsScreen> {
         fileName: _nameController.text,
         pages: provider.pages,
         format: format,
+        toolType: provider.toolType,
       );
 
       if (mounted) {

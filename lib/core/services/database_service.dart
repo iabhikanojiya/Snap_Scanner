@@ -17,7 +17,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pdf_files (
@@ -25,9 +25,15 @@ class DatabaseService {
             name TEXT,
             path TEXT,
             size INTEGER,
-            createdAt TEXT
+            createdAt TEXT,
+            toolType TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE pdf_files ADD COLUMN toolType TEXT DEFAULT "unknown"');
+        }
       },
     );
   }
