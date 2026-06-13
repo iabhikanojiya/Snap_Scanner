@@ -26,7 +26,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
         title: Consumer<ScanProvider>(
           builder: (context, provider, _) => Text('Review (${provider.pages.length})'),
         ),

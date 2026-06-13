@@ -19,11 +19,43 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> {
   List<PdfFileModel> _recentFiles = [];
   bool _isLoading = true;
+  String _selectedFilter = 'all';
+  final _searchController = TextEditingController();
+
+  static const _filterOptions = [
+    ('All', 'all'),
+    ('Scan PDF', 'scan_pdf'),
+    ('Image to PDF', 'image_to_pdf'),
+    ('Merge PDF', 'merge_pdf'),
+    ('Split PDF', 'split_pdf'),
+    ('Compress PDF', 'compress_pdf'),
+    ('Lock PDF', 'lock_pdf'),
+    ('Signature', 'signature_pdf'),
+    ('Resize Image', 'resize_image'),
+  ];
+
+  List<PdfFileModel> get _filteredFiles {
+    var files = _recentFiles;
+    if (_selectedFilter != 'all') {
+      files = files.where((f) => f.toolType == _selectedFilter).toList();
+    }
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      files = files.where((f) => f.name.toLowerCase().contains(query)).toList();
+    }
+    return files;
+  }
 
   @override
   void initState() {
     super.initState();
     _loadRecentFiles();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadRecentFiles() async {
@@ -55,6 +87,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return 'Created with Split PDF';
       case 'compress_pdf':
         return 'Created with Compress PDF';
+      case 'lock_pdf':
+        return 'Created with Lock PDF';
+      case 'signature_pdf':
+        return 'Created with Signature';
+      case 'resize_image':
+        return 'Created with Resize Image';
       default:
         return 'Created with SnapScanner';
     }
@@ -197,197 +235,268 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'History',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).textTheme.titleLarge?.color,
+    return Container(
+      color: const Color(0xFFF8F9FA),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'History',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).textTheme.titleLarge?.color,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Recently created and modified files',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
+                const SizedBox(height: 4),
+                Text(
+                  'Recently created and modified files',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        
-        const SizedBox(height: 10),
 
-        // Content
-        Expanded(
-          child: _isLoading 
-            ? const Center(child: CircularProgressIndicator())
-            : _recentFiles.isEmpty 
-              ? _buildEmptyState()
-              : _buildRecentFilesList(),
-        ),
-      ],
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Search files...',
+                prefixIcon: const Icon(Icons.search, size: 22),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 20),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.grey.shade200),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Filter chips
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              itemCount: _filterOptions.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final label = _filterOptions[index].$1;
+                final value = _filterOptions[index].$2;
+                final isSelected = _selectedFilter == value;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedFilter = value),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.blueAccent : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected ? Colors.blueAccent : Colors.grey.shade200,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.grey.shade700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Content
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _recentFiles.isEmpty
+                    ? _buildEmptyState()
+                    : _filteredFiles.isEmpty
+                        ? _buildNoResultsState()
+                        : _buildRecentFilesList(),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Illustration
-            Stack(
-              alignment: Alignment.center,
-              clipBehavior: Clip.none,
-              children: [
-                // Background paper shadow
-                Transform.rotate(
-                  angle: -0.2,
-                  child: Container(
-                    width: 120,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                // Background paper shadow
-                Transform.rotate(
-                  angle: 0.2,
-                  child: Container(
-                    width: 120,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-                // Main Paper
-                Container(
-                  width: 140,
-                  height: 180,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 15,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        top: 40,
-                        left: 20,
-                        child: Container(width: 60, height: 4, color: Colors.grey.shade200),
-                      ),
-                      Positioned(
-                        top: 60,
-                        left: 20,
-                        child: Container(width: 40, height: 4, color: Colors.grey.shade200),
-                      ),
-                      Positioned(
-                        bottom: 30,
-                        right: 20,
-                        child: Icon(Icons.draw, color: Colors.grey.shade400, size: 40,),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withOpacity(0.1),
+              shape: BoxShape.circle,
             ),
-            const SizedBox(height: 50),
-            Text(
-              'No files yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).textTheme.titleLarge?.color,
-              ),
+            child: const Icon(Icons.history, size: 56, color: Colors.blueAccent),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'No files yet',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).textTheme.titleLarge?.color,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Your created PDFs will appear here',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Your created PDFs will appear here',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
             ),
-            const SizedBox(height: 100), // padding for bottom nav
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoResultsState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.search_off, size: 48, color: Colors.grey),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'No matching files',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).textTheme.titleLarge?.color,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Try a different search or filter',
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildRecentFilesList() {
+    final files = _filteredFiles;
     return ListView.builder(
-      padding: const EdgeInsets.only(left: 24, right: 24, bottom: 100), // extra padding for bottom nav
-      itemCount: _recentFiles.length,
+      padding: const EdgeInsets.only(left: 24, right: 24, bottom: 100),
+      itemCount: files.length,
       itemBuilder: (context, index) {
-        final file = _recentFiles[index];
+        final file = files[index];
+        final isImage = file.toolType == 'resize_image';
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 5,
-                offset: const Offset(0, 2),
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _showFileActions(file),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isImage
+                            ? Colors.pink.withOpacity(0.12)
+                            : Colors.red.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        isImage ? Icons.image : Icons.picture_as_pdf,
+                        color: isImage ? Colors.pink : Colors.red,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            file.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatToolType(file.toolType),
+                            style: TextStyle(color: Colors.blueAccent.shade400, fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_formatSize(file.size)} • ${DateFormat('MMM dd, yyyy').format(file.createdAt)}',
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: Colors.grey.shade300, size: 22),
+                  ],
+                ),
               ),
-              child: const Icon(Icons.picture_as_pdf, color: Colors.red),
             ),
-            title: Text(
-              file.name,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(
-                  _formatToolType(file.toolType),
-                  style: TextStyle(color: Colors.blueAccent.shade400, fontSize: 11, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_formatSize(file.size)} • ${DateFormat('MMM dd, yyyy').format(file.createdAt)}',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                ),
-              ],
-            ),
-            onTap: () => _showFileActions(file),
           ),
         );
       },
