@@ -16,6 +16,8 @@ import 'package:snap_scanner/features/split/screens/pdf_split_screen.dart';
 import 'package:snap_scanner/features/compress/screens/pdf_compress_screen.dart';
 import 'package:snap_scanner/features/lock/screens/pdf_lock_screen.dart';
 import 'package:snap_scanner/features/signature/screens/signature_screen.dart';
+import 'package:snap_scanner/features/signature/screens/saved_signatures_screen.dart';
+import 'package:snap_scanner/features/signature/services/signature_service.dart';
 import 'package:snap_scanner/features/resize_image/screens/resize_image_screen.dart';
 
 class ToolsScreen extends StatefulWidget {
@@ -69,6 +71,96 @@ class _ToolsScreenState extends State<ToolsScreen> {
       context: context,
       barrierDismissible: false,
       builder: (c) => const Center(child: CircularProgressIndicator()),
+    );
+  }
+
+  void _showSignatureOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Add Signature',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Choose an option to add your signature',
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                ),
+                const SizedBox(height: 24),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.draw, color: Colors.indigo, size: 28),
+                  ),
+                  title: const Text('Create New Signature',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  subtitle: Text('Draw a new signature',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                  trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SignatureScreen()));
+                  },
+                ),
+                const Divider(indent: 24, endIndent: 24),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.folder_open, color: Colors.amber, size: 28),
+                  ),
+                  title: const Text('Use Saved Signature',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  subtitle: Text('Select from saved signatures',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                  trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final hasSaved = await SignatureService.hasSavedSignatures();
+                    if (!hasSaved) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('No saved signatures found. Create one first.')),
+                        );
+                      }
+                      return;
+                    }
+                    if (context.mounted) {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SavedSignaturesScreen()));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -329,8 +421,14 @@ class _ToolsScreenState extends State<ToolsScreen> {
                 title: 'Signature',
                 icon: Icons.draw,
                 color: Colors.indigo,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SignatureScreen()));
+                onTap: () async {
+                  final hasSaved = await SignatureService.hasSavedSignatures();
+                  if (!context.mounted) return;
+                  if (!hasSaved) {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SignatureScreen()));
+                  } else {
+                    _showSignatureOptions(context);
+                  }
                 },
               ),
               HomeActionCard(

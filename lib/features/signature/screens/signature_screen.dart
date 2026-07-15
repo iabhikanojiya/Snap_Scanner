@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../widgets/signature_pad.dart';
@@ -38,7 +39,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final image = await _padKey.currentState!.toImage();
+      final image = await _padKey.currentState!.renderSignatureOnly();
       final fileName = 'Signature_${DateTime.now().millisecondsSinceEpoch}';
       final file = await SignatureService.saveSignatureAsImage(
         image: image,
@@ -92,15 +93,21 @@ class _SignatureScreenState extends State<SignatureScreen> {
       final outputName = '${result.files.first.name.replaceAll('.pdf', '')}_signed';
 
       final signatureImage = await _padKey.currentState!.renderSignatureOnly();
+      final byteData = await signatureImage.toByteData(format: ui.ImageByteFormat.png);
+      final pngBytes = byteData?.buffer.asUint8List();
+      if (pngBytes == null) throw Exception('Failed to capture signature');
+
+      final strokeData = _padKey.currentState!.getStrokeData();
 
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => SignaturePdfScreen(
-              signatureImage: signatureImage,
+              signaturePngBytes: pngBytes,
               pdfPath: pdfPath,
               outputName: outputName,
+              strokeData: strokeData,
             ),
           ),
         );

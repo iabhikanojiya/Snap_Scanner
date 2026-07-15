@@ -30,6 +30,15 @@ class SignaturePadState extends State<SignaturePad> {
 
   bool get hasContent => _strokes.isNotEmpty;
 
+  List<Map<String, dynamic>> getStrokeData() {
+    final allStrokes = [..._strokes, if (_currentStroke != null) _currentStroke!];
+    return allStrokes.map((s) => <String, dynamic>{
+      'points': s.points.map((p) => <String, dynamic>{'x': p.dx, 'y': p.dy}).toList(),
+      'color': s.color.value,
+      'width': s.width,
+    }).toList();
+  }
+
   Future<ui.Image> toImage({double pixelRatio = 3.0}) async {
     final boundary = _boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
     return boundary.toImage(pixelRatio: pixelRatio);

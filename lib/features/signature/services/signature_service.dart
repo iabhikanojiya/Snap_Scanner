@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -117,6 +118,149 @@ class SignatureService {
         signature,
         Rect.fromLTWH(x, y, sigWidth, sigHeight),
       );
+    }
+
+    final result = document.saveSync();
+    document.dispose();
+
+    return result;
+  }
+
+  static Future<Directory> _getSignaturesDirectory() async {
+    final directory = await getApplicationDocumentsDirectory();
+    final signaturesDir = Directory(p.join(directory.path, 'Signatures'));
+    if (!await signaturesDir.exists()) {
+      await signaturesDir.create(recursive: true);
+    }
+    return signaturesDir;
+  }
+
+  static Future<List<File>> getSavedSignatures() async {
+    final signaturesDir = await _getSignaturesDirectory();
+    final files = signaturesDir.listSync().whereType<File>().where((f) => f.path.endsWith('.png')).toList();
+    files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+    return files;
+  }
+
+  static Future<bool> hasSavedSignatures() async {
+    final sigs = await getSavedSignatures();
+    return sigs.isNotEmpty;
+  }
+
+  static Future<ui.Image> loadSignatureImage(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(bytes, (image) => completer.complete(image));
+    return completer.future;
+  }
+
+  static Future<File> addSignaturesToPdfWithStrokes({
+    required String sourcePdfPath,
+    required List<Map<String, dynamic>> strokeData,
+    required List<SignaturePlacement> placements,
+    required String outputName,
+  }) async {
+    if (placements.isEmpty) throw Exception('No signature placements');
+    if (strokeData.isEmpty) throw Exception('No stroke data');
+
+    final placementsData = placements.map((p) => p.toMap()).toList();
+
+    final result = await compute(_addStrokesIsolate, {
+      'sourcePdfPath': sourcePdfPath,
+      'strokeData': strokeData,
+      'placements': placementsData,
+    });
+
+    final file = await StorageService.savePdfFile(outputName, result);
+
+    final pdfModel = PdfFileModel(
+      id: const Uuid().v4(),
+      name: outputName.endsWith('.pdf') ? outputName : '$outputName.pdf',
+      path: file.path,
+      size: await file.length(),
+      createdAt: DateTime.now(),
+      toolType: 'signature_pdf',
+    );
+    await DatabaseService.insertFile(pdfModel);
+
+    return file;
+  }
+
+  static List<int> _addStrokesIsolate(Map<String, dynamic> params) {
+    final sourcePath = params['sourcePdfPath'] as String;
+    final strokeData = List<Map<String, dynamic>>.from(params['strokeData']);
+    final placements = List<Map<String, dynamic>>.from(params['placements']);
+
+    final sourceBytes = File(sourcePath).readAsBytesSync();
+    final document = PdfDocument(inputBytes: sourceBytes);
+
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = 0, maxY = 0;
+    for (final stroke in strokeData) {
+      final points = List<Map<String, dynamic>>.from(stroke['points']);
+      for (final pt in points) {
+        final dx = pt['x'] as double;
+        final dy = pt['y'] as double;
+        if (dx < minX) minX = dx;
+        if (dy < minY) minY = dy;
+        if (dx > maxX) maxX = dx;
+        if (dy > maxY) maxY = dy;
+      }
+    }
+    const padding = 15.0;
+    final strokeW = maxX - minX + padding * 2;
+    final strokeH = maxY - minY + padding * 2;
+
+    for (final placement in placements) {
+      final pageIndex = (placement['pageIndex'] as int).clamp(0, document.pages.count - 1);
+      final posX = placement['x'] as double;
+      final posY = placement['y'] as double;
+      final sigWidth = placement['width'] as double;
+
+      final page = document.pages[pageIndex];
+      final template = page.createTemplate();
+      final pageWidth = template.size.width;
+      final pageHeight = template.size.height;
+      final sigHeight = sigWidth * (strokeH / strokeW);
+
+      final originX = posX * pageWidth - sigWidth / 2;
+      final originY = posY * pageHeight - sigHeight / 2;
+
+      for (final stroke in strokeData) {
+        final points = List<Map<String, dynamic>>.from(stroke['points']);
+        if (points.isEmpty) continue;
+
+        final colorValue = stroke['color'] as int;
+        final strokeWidth = stroke['width'] as double;
+        final scaledWidth = strokeWidth * (sigWidth / strokeW);
+
+        final r = (colorValue >> 16) & 0xFF;
+        final g = (colorValue >> 8) & 0xFF;
+        final b = colorValue & 0xFF;
+
+        final pdfPath = PdfPath();
+        final first = points.first;
+        double prevX = originX + ((first['x'] as double) - minX + padding) / strokeW * sigWidth;
+        double prevY = originY + ((first['y'] as double) - minY + padding) / strokeH * sigHeight;
+
+        for (int i = 1; i < points.length; i++) {
+          final pt = points[i];
+          final curX = originX + ((pt['x'] as double) - minX + padding) / strokeW * sigWidth;
+          final curY = originY + ((pt['y'] as double) - minY + padding) / strokeH * sigHeight;
+          pdfPath.addLine(Offset(prevX, prevY), Offset(curX, curY));
+          prevX = curX;
+          prevY = curY;
+        }
+
+        page.graphics.drawPath(
+          pdfPath,
+          pen: PdfPen(PdfColor(r, g, b),
+            width: scaledWidth,
+            lineCap: PdfLineCap.round,
+            lineJoin: PdfLineJoin.round,
+          ),
+        );
+      }
     }
 
     final result = document.saveSync();

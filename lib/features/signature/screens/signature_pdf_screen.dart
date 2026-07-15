@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -20,15 +22,17 @@ class _PlacedSignature {
 }
 
 class SignaturePdfScreen extends StatefulWidget {
-  final ui.Image signatureImage;
+  final Uint8List signaturePngBytes;
   final String pdfPath;
   final String outputName;
+  final List<Map<String, dynamic>>? strokeData;
 
   const SignaturePdfScreen({
     super.key,
-    required this.signatureImage,
+    required this.signaturePngBytes,
     required this.pdfPath,
     required this.outputName,
+    this.strokeData,
   });
 
   @override
@@ -42,25 +46,25 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
   int _currentPage = 0;
   bool _isLoading = true;
   bool _isSaving = false;
-  Uint8List? _signaturePngBytes;
 
   final List<_PlacedSignature> _placements = [];
   int _selectedLocalIndex = -1;
   double _defaultWidth = 200;
+  double _signatureAspectRatio = 3.0;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    _initSignatureBytes();
     _loadDocument();
+    _loadSignatureAspectRatio();
   }
 
-  Future<void> _initSignatureBytes() async {
-    final byteData = await widget.signatureImage.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData != null) {
-      _signaturePngBytes = byteData.buffer.asUint8List();
-    }
+  Future<void> _loadSignatureAspectRatio() async {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(widget.signaturePngBytes, (image) => completer.complete(image));
+    final image = await completer.future;
+    _signatureAspectRatio = image.width / image.height;
   }
 
   @override
@@ -178,12 +182,35 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
         width: p.width,
       )).toList();
 
-      final file = await SignatureService.addSignaturesToPdf(
-        sourcePdfPath: widget.pdfPath,
-        signatureImage: widget.signatureImage,
-        placements: placements,
-        outputName: widget.outputName,
-      );
+      final File file;
+      if (widget.strokeData != null) {
+        file = await SignatureService.addSignaturesToPdfWithStrokes(
+          sourcePdfPath: widget.pdfPath,
+          strokeData: widget.strokeData!,
+          placements: placements,
+          outputName: widget.outputName,
+        );
+      } else {
+        final completer = Completer<ui.Image>();
+        ui.decodeImageFromList(widget.signaturePngBytes, (image) => completer.complete(image));
+        final transparentImage = await completer.future;
+
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        canvas.drawColor(const Color(0xFFFFFFFF), BlendMode.src);
+        canvas.drawImage(transparentImage, Offset.zero, Paint());
+        final whiteBgImage = await recorder.endRecording().toImage(
+          transparentImage.width,
+          transparentImage.height,
+        );
+
+        file = await SignatureService.addSignaturesToPdf(
+          sourcePdfPath: widget.pdfPath,
+          signatureImage: whiteBgImage,
+          placements: placements,
+          outputName: widget.outputName,
+        );
+      }
 
       if (mounted) {
         Navigator.pushReplacement(
@@ -249,7 +276,7 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
                 ],
               ),
             )
-          : _isLoading || _signaturePngBytes == null
+          : _isLoading
               ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
               : Column(
                   children: [
@@ -267,7 +294,8 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
                           return _PdfPageWidget(
                             document: _document!,
                             pageNumber: index + 1,
-                            signaturePngBytes: _signaturePngBytes!,
+                            signaturePngBytes: widget.signaturePngBytes,
+                            signatureAspectRatio: _signatureAspectRatio,
                             placements: _placements
                                 .where((p) => p.pageIndex == index)
                                 .toList(),
@@ -416,6 +444,7 @@ class _PdfPageWidget extends StatefulWidget {
   final px.PdfDocument document;
   final int pageNumber;
   final Uint8List signaturePngBytes;
+  final double signatureAspectRatio;
   final List<_PlacedSignature> placements;
   final int selectedLocalIndex;
   final void Function(double x, double y) onTap;
@@ -427,6 +456,7 @@ class _PdfPageWidget extends StatefulWidget {
     required this.document,
     required this.pageNumber,
     required this.signaturePngBytes,
+    required this.signatureAspectRatio,
     required this.placements,
     required this.selectedLocalIndex,
     required this.onTap,
@@ -553,7 +583,7 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
                           final visualY = placement.y + relDelta.dy;
 
                           final sigWidthPx = _displayW * (placement.width / _pageWidthPt);
-                          final sigHeightPx = sigWidthPx * 0.3;
+                          final sigHeightPx = sigWidthPx / widget.signatureAspectRatio;
 
                           final left = visualX * _displayW - sigWidthPx / 2;
                           final top = visualY * _displayH - sigHeightPx / 2;
