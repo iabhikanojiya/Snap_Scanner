@@ -21,6 +21,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   List<CameraDescription>? _cameras;
   bool _isInit = false;
   bool _isProcessing = false;
+  String? _cameraError;
   FlashMode _flashMode = FlashMode.off;
 
   @override
@@ -61,11 +62,12 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       }
     } catch (e) {
       debugPrint("Camera initialization error: $e");
-      // Handle permission errors or no camera
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to initialize camera')),
-        );
+        setState(() {
+          _cameraError = e.toString().toLowerCase().contains('permission')
+              ? 'Camera permission was denied'
+              : 'Camera is not available on this device';
+        });
       }
     }
   }
@@ -165,6 +167,59 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
+    if (_cameraError != null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt, color: Colors.white70, size: 64),
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'Camera Required',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _cameraError == 'Camera permission was denied'
+                      ? 'SnapScanner needs camera access to scan documents.\n\nPlease grant camera permission in your device Settings > Apps > SnapScanner > Permissions.'
+                      : 'A camera is required to use the Scan PDF feature.\n\nPlease use "Image to PDF" to select images from your gallery instead.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 15, height: 1.5),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Go Back'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (!_isInit || _controller == null) {
       return const Scaffold(
         backgroundColor: Colors.black,

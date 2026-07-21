@@ -1,5 +1,24 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Remove permissions injected by camera_android_camerax that are not needed -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"
+        tools:node="remove" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <!-- Remove READ_MEDIA_AUDIO injected by open_filex - not needed for PDF scanner -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"
+        tools:node="remove" />
+
     <application
         android:label="SnapScanner"
         android:name="${applicationName}"

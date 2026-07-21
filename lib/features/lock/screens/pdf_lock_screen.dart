@@ -95,9 +95,36 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to lock PDF: $e')),
-        );
+        final msg = e.toString().toLowerCase();
+        if (msg.contains('protected') || msg.contains('password') || msg.contains('encrypted')) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  const Icon(Icons.lock, color: Colors.orange),
+                  const SizedBox(width: 10),
+                  const Text('Already Protected'),
+                ],
+              ),
+              content: const Text(
+                'This PDF is already password-protected. '
+                'Please select a PDF that is not locked.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to lock PDF: $e')),
+          );
+        }
       }
     } finally {
       if (mounted) {
