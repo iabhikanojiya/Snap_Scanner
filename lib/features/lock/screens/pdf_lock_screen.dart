@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:snap_scanner/core/services/analytics_service.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 import '../services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
@@ -48,6 +50,37 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         final filePath = result.files.first.path!;
         final file = File(filePath);
 
+        if (await PdfLockService.isPdfLocked(filePath)) {
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+                title: const Row(
+                  children: [
+                    Icon(Icons.lock, color: Colors.orange),
+                    SizedBox(width: 10),
+                    Text('Locked PDF Selected'),
+                  ],
+                ),
+                content: Text(
+                  'The file "${file.path.split('/').last}" is '
+                  'already password-protected.\n\n'
+                  'Please select a PDF that is not locked.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return;
+        }
+
         setState(() {
           _selectedFile = file;
           _nameController.text = '${file.path.split('/').last.replaceAll('.pdf', '')}_locked';
@@ -85,6 +118,9 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         outputName: outputName,
       );
 
+      AnalyticsService.instance.logPdfSaved();
+      AnalyticsService.instance.logLockPdf();
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -94,6 +130,10 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'lock_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         final msg = e.toString().toLowerCase();
         if (msg.contains('protected') || msg.contains('password') || msg.contains('encrypted')) {
@@ -145,23 +185,26 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Encrypting PDF offline, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : _selectedFile == null
-              ? _buildEmptyState()
-              : Form(
+      body: Column(
+        children: [
+          Expanded(
+            child: _isProcessing
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          'Encrypting PDF offline, please wait...',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : _selectedFile == null
+                    ? _buildEmptyState()
+                    : Form(
                   key: _formKey,
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
@@ -350,8 +393,15 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
                         ),
                       ],
                     ),
-                  ),
                 ),
+              ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            child: BannerAdWidget(visible: _selectedFile == null),
+          ),
+        ],
+      ),
     );
   }
 

@@ -1,6 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+
+    <!-- Camera is optional - Image to PDF works without it -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false"
+        tools:node="replace" />
 
     <!-- Remove permissions injected by camera_android_camerax that are not needed -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"
@@ -51,6 +60,10 @@
             android:name="flutterEmbedding"
             android:value="2" />
 			
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-8348005705345032~2174218254"/>
+
         <!-- ADDED FOR IMAGE_CROPPER -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"

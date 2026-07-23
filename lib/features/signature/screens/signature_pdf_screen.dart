@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart' as px;
+import 'package:snap_scanner/core/services/analytics_service.dart';
 import '../services/signature_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
@@ -46,6 +47,8 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
   int _currentPage = 0;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _navigatedAway = false;
+  String? _loadError;
 
   final List<_PlacedSignature> _placements = [];
   int _selectedLocalIndex = -1;
@@ -75,9 +78,10 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
   }
 
   Future<void> _closeDocument() async {
-    if (_document != null) {
-      await _document!.close();
+    final doc = _document;
+    if (doc != null) {
       _document = null;
+      await doc.close();
     }
   }
 
@@ -93,7 +97,10 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _loadError = e.toString();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load PDF: $e')),
         );
@@ -212,7 +219,11 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
         );
       }
 
+      AnalyticsService.instance.logPdfSaved();
+      AnalyticsService.instance.logSignatureUsed();
+
       if (mounted) {
+        _navigatedAway = true;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -225,13 +236,17 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'signature_pdf_save_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to save: $e')),
         );
       }
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted && !_navigatedAway) setState(() => _isSaving = false);
     }
   }
 
@@ -278,7 +293,35 @@ class _SignaturePdfScreenState extends State<SignaturePdfScreen> {
             )
           : _isLoading
               ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
-              : Column(
+              : _loadError != null || _document == null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                          const SizedBox(height: 16),
+                          Text(
+                            _loadError != null ? 'Failed to load PDF' : 'PDF not available',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              _loadError ?? 'An unexpected error occurred',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
                   children: [
                     Expanded(
                       child: PageView.builder(
@@ -526,7 +569,8 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingPage || _imageBytes == null) {
+    final bytes = _imageBytes;
+    if (_isLoadingPage || bytes == null) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 
@@ -571,7 +615,7 @@ class _PdfPageWidgetState extends State<_PdfPageWidget> {
                   height: _displayH,
                   child: Stack(
                     children: [
-                      Image.memory(_imageBytes!, fit: BoxFit.contain, width: _displayW, height: _displayH),
+                      Image.memory(bytes, fit: BoxFit.contain, width: _displayW, height: _displayH),
                       ...() {
                         final widgets = <Widget>[];
                         for (int index = 0; index < widget.placements.length; index++) {

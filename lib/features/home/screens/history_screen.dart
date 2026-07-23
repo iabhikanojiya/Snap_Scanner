@@ -6,8 +6,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../../core/models/pdf_file_model.dart';
+import '../../../core/services/analytics_service.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/storage_service.dart';
+import '../../../core/widgets/banner_ad_widget.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -121,6 +123,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               title: const Text('Share'),
               onTap: () async {
                 Navigator.pop(context);
+                AnalyticsService.instance.logPdfShared();
                 await Share.shareXFiles([XFile(file.path)]);
               },
             ),
@@ -221,6 +224,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             onPressed: () async {
               await StorageService.deleteFile(file.path);
               await DatabaseService.deleteFile(file.id);
+              AnalyticsService.instance.logPdfDeleted();
               if (mounted) {
                 Navigator.pop(context);
                 _loadRecentFiles();
@@ -351,6 +355,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ? _buildNoResultsState()
                         : _buildRecentFilesList(),
           ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: BannerAdWidget(),
+          ),
+          const SizedBox(height: 100),
         ],
       ),
     );

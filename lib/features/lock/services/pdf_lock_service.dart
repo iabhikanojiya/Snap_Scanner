@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
@@ -7,6 +8,20 @@ import '../../../core/services/database_service.dart';
 import '../../../core/services/storage_service.dart';
 
 class PdfLockService {
+  static Future<bool> isPdfLocked(String filePath) async {
+    return compute(_checkLocked, filePath);
+  }
+
+  static bool _checkLocked(String filePath) {
+    try {
+      final file = File(filePath);
+      final bytes = file.readAsBytesSync();
+      final content = utf8.decode(bytes, allowMalformed: true);
+      return content.contains('/Encrypt');
+    } catch (e) {
+      return false;
+    }
+  }
   static Future<File> lockPdf({
     required String sourcePath,
     required String password,

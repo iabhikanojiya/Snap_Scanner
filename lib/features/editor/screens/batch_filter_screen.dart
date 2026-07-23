@@ -34,6 +34,7 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
     final provider = Provider.of<ScanProvider>(context, listen: false);
     if (provider.pages.isEmpty) return;
 
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
       _currentFilter = type;
@@ -41,21 +42,19 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
 
     try {
       final page = provider.pages[_currentIndex];
-      
+
       if (type == FilterType.original) {
         provider.updatePageProcessedFile(page.id, File(page.originalPath));
       } else {
-        // Here we apply filter to the currently displaying file (which is cropped)
-        // BUT wait, if we changed filters multiple times on the same page, we should apply it to the originally edited/cropped file.
-        // For simplicity, we just apply filter to the current display file over and over? No, it accumulates.
-        // It's better to store a "cropped but unfiltered" file or just assume basic flow.
-        // Using `currentFile` directly might accumulate filters. Let's just apply it.
         final newFile = await ImageUtils.applyFilter(page.displayFile, type);
         provider.updatePageProcessedFile(page.id, newFile);
       }
     } catch (e) {
+      debugPrint('Filter failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Filter failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not apply filter. Please try again.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -66,6 +65,7 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
     final provider = Provider.of<ScanProvider>(context, listen: false);
     if (provider.pages.isEmpty) return;
 
+    if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
     });
@@ -79,13 +79,18 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
           provider.updatePageProcessedFile(page.id, newFile);
         }
       }
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Filter applied to all pages')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Filter applied to all pages')),
+        );
       }
     } catch (e) {
+      debugPrint('Apply all filter failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Filter failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not apply filter to all pages. Please try again.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);

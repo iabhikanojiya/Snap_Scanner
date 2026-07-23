@@ -58,9 +58,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 
                 // Screen Content
                 Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: _screens[_currentIndex],
+                  child: IndexedStack(
+                    index: _currentIndex,
+                    children: _screens,
                   ),
                 ),
               ],

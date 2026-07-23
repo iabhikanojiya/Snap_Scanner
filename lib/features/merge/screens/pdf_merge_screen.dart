@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:snap_scanner/core/services/analytics_service.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 import '../services/pdf_merge_service.dart';
+import '../../lock/services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
 class PdfMergeScreen extends StatefulWidget {
@@ -38,11 +41,47 @@ class _PdfMergeScreenState extends State<PdfMergeScreen> {
       );
 
       if (result != null && result.files.isNotEmpty) {
-        setState(() {
-          _selectedFiles.addAll(
-            result.files.map((file) => File(file.path!)).toList(),
-          );
-        });
+        final newFiles = <File>[];
+        for (final picked in result.files) {
+          final file = File(picked.path!);
+          final locked = await PdfLockService.isPdfLocked(file.path);
+          if (locked) {
+            if (mounted) {
+              await showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  title: const Row(
+                    children: [
+                      Icon(Icons.lock, color: Colors.orange),
+                      SizedBox(width: 10),
+                      Text('Locked PDF Selected'),
+                    ],
+                  ),
+                  content: Text(
+                    'The file "${file.path.split('/').last}" is '
+                    'password-protected and cannot be merged.\n\n'
+                    'Please select a PDF that is not locked.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            }
+          } else {
+            newFiles.add(file);
+          }
+        }
+        if (newFiles.isNotEmpty) {
+          setState(() {
+            _selectedFiles.addAll(newFiles);
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -98,6 +137,9 @@ class _PdfMergeScreenState extends State<PdfMergeScreen> {
         outputName: outputName,
       );
 
+      AnalyticsService.instance.logPdfSaved();
+      AnalyticsService.instance.logMergePdf();
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -107,6 +149,10 @@ class _PdfMergeScreenState extends State<PdfMergeScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'merge_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to merge PDFs: $e')),
@@ -131,28 +177,31 @@ class _PdfMergeScreenState extends State<PdfMergeScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Merging PDFs offline, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  Expanded(
-                    child: _selectedFiles.isEmpty
-                        ? _buildEmptyState()
-                        : Column(
+      body: Column(
+        children: [
+          Expanded(
+            child: _isProcessing
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          'Merging PDFs offline, please wait...',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: _selectedFiles.isEmpty
+                              ? _buildEmptyState()
+                              : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // File details container
@@ -317,6 +366,13 @@ class _PdfMergeScreenState extends State<PdfMergeScreen> {
                 ],
               ),
             ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            child: BannerAdWidget(visible: _selectedFiles.isEmpty),
+          ),
+        ],
+      ),
     );
   }
 

@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/utils/image_utils.dart';
 import '../../../core/models/scanned_page.dart';
+import '../../../core/services/analytics_service.dart';
+import '../../../core/widgets/banner_ad_widget.dart';
 import '../../../providers/scan_provider.dart';
 import '../widgets/home_action_card.dart';
 
@@ -29,6 +31,7 @@ class ToolsScreen extends StatefulWidget {
 
 class _ToolsScreenState extends State<ToolsScreen> {
   void _openScanner(BuildContext context) {
+    AnalyticsService.instance.logScanStarted();
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ScannerScreen()),
@@ -36,6 +39,7 @@ class _ToolsScreenState extends State<ToolsScreen> {
   }
 
   Future<void> _pickImages(BuildContext context) async {
+    AnalyticsService.instance.logImageToPdfStarted();
     final ImagePicker picker = ImagePicker();
     final provider = Provider.of<ScanProvider>(context, listen: false);
     provider.clearPages();
@@ -442,6 +446,11 @@ class _ToolsScreenState extends State<ToolsScreen> {
             ]),
 
             const SizedBox(height: 32),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: BannerAdWidget(),
+            ),
+            const SizedBox(height: 40),
           ],
         ),
       ),

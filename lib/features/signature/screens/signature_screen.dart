@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:snap_scanner/core/services/analytics_service.dart';
 import '../widgets/signature_pad.dart';
 import '../services/signature_service.dart';
 import '../../pdf/screens/success_screen.dart';
@@ -29,7 +30,8 @@ class _SignatureScreenState extends State<SignatureScreen> {
   ];
 
   Future<void> _saveAsImage() async {
-    if (!_padKey.currentState!.hasContent) {
+    final padState = _padKey.currentState;
+    if (padState == null || !padState.hasContent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please draw a signature first.')),
       );
@@ -39,12 +41,14 @@ class _SignatureScreenState extends State<SignatureScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final image = await _padKey.currentState!.renderSignatureOnly();
+      final image = await padState.renderSignatureOnly();
       final fileName = 'Signature_${DateTime.now().millisecondsSinceEpoch}';
       final file = await SignatureService.saveSignatureAsImage(
         image: image,
         outputName: fileName,
       );
+
+      AnalyticsService.instance.logSignatureSaved();
 
       if (mounted) {
         Navigator.push(
@@ -62,6 +66,10 @@ class _SignatureScreenState extends State<SignatureScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'signature_save_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to save signature: $e')),
@@ -73,7 +81,8 @@ class _SignatureScreenState extends State<SignatureScreen> {
   }
 
   Future<void> _addToPdf() async {
-    if (!_padKey.currentState!.hasContent) {
+    final padState = _padKey.currentState;
+    if (padState == null || !padState.hasContent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please draw a signature first.')),
       );
@@ -89,15 +98,19 @@ class _SignatureScreenState extends State<SignatureScreen> {
 
       if (result == null || result.files.isEmpty) return;
 
-      final pdfPath = result.files.first.path!;
-      final outputName = '${result.files.first.name.replaceAll('.pdf', '')}_signed';
+      final file = result.files.first;
+      if (file.path == null) throw Exception('Selected file has no accessible path');
+      final pdfPath = file.path!;
+      final outputName = '${file.name.replaceAll('.pdf', '')}_signed';
 
-      final signatureImage = await _padKey.currentState!.renderSignatureOnly();
+      final padState = _padKey.currentState;
+      if (padState == null) throw Exception('Signature pad no longer available');
+      final signatureImage = await padState.renderSignatureOnly();
       final byteData = await signatureImage.toByteData(format: ui.ImageByteFormat.png);
       final pngBytes = byteData?.buffer.asUint8List();
       if (pngBytes == null) throw Exception('Failed to capture signature');
 
-      final strokeData = _padKey.currentState!.getStrokeData();
+      final strokeData = padState.getStrokeData();
 
       if (mounted) {
         Navigator.push(
@@ -113,6 +126,10 @@ class _SignatureScreenState extends State<SignatureScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'signature_pdf_load_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load PDF: $e')),

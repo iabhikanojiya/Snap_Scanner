@@ -3,7 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pdfx/pdfx.dart' as px;
+import 'package:snap_scanner/core/services/analytics_service.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 import '../services/pdf_split_service.dart';
+import '../../lock/services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
 class PdfSplitScreen extends StatefulWidget {
@@ -54,6 +57,37 @@ class _PdfSplitScreenState extends State<PdfSplitScreen> {
       if (result != null && result.files.isNotEmpty) {
         final filePath = result.files.first.path!;
         final file = File(filePath);
+
+        if (await PdfLockService.isPdfLocked(filePath)) {
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+                title: const Row(
+                  children: [
+                    Icon(Icons.lock, color: Colors.orange),
+                    SizedBox(width: 10),
+                    Text('Locked PDF Selected'),
+                  ],
+                ),
+                content: Text(
+                  'The file "${file.path.split('/').last}" is '
+                  'password-protected and cannot be split.\n\n'
+                  'Please select a PDF that is not locked.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return;
+        }
 
         setState(() {
           _selectedFile = file;
@@ -136,6 +170,9 @@ class _PdfSplitScreenState extends State<PdfSplitScreen> {
         outputName: outputName,
       );
 
+      AnalyticsService.instance.logPdfSaved();
+      AnalyticsService.instance.logSplitPdf();
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -145,6 +182,10 @@ class _PdfSplitScreenState extends State<PdfSplitScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'split_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to split PDF: $e')),
@@ -178,25 +219,28 @@ class _PdfSplitScreenState extends State<PdfSplitScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Extracting pages offline, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : _selectedFile == null
-              ? _buildEmptyState()
-              : _isLoadingPdf
-                  ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
-                  : Form(
+      body: Column(
+        children: [
+          Expanded(
+            child: _isProcessing
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          'Extracting pages offline, please wait...',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : _selectedFile == null
+                    ? _buildEmptyState()
+                    : _isLoadingPdf
+                        ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
+                        : Form(
                       key: _formKey,
                       child: Column(
                         children: [
@@ -376,9 +420,16 @@ class _PdfSplitScreenState extends State<PdfSplitScreen> {
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            child: BannerAdWidget(visible: _selectedFile == null),
+          ),
+        ],
+      ),
     );
   }
 

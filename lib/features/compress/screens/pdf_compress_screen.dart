@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:snap_scanner/core/services/analytics_service.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 import '../services/pdf_compress_service.dart';
+import '../../lock/services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
 class PdfCompressScreen extends StatefulWidget {
@@ -42,6 +45,38 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
       if (result != null && result.files.isNotEmpty) {
         final filePath = result.files.first.path!;
         final file = File(filePath);
+
+        if (await PdfLockService.isPdfLocked(filePath)) {
+          if (mounted) {
+            await showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+                title: const Row(
+                  children: [
+                    Icon(Icons.lock, color: Colors.orange),
+                    SizedBox(width: 10),
+                    Text('Locked PDF Selected'),
+                  ],
+                ),
+                content: Text(
+                  'The file "${file.path.split('/').last}" is '
+                  'password-protected and cannot be compressed.\n\n'
+                  'Please select a PDF that is not locked.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return;
+        }
+
         final size = await file.length();
 
         setState(() {
@@ -88,6 +123,9 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
         outputName: outputName,
       );
 
+      AnalyticsService.instance.logPdfSaved();
+      AnalyticsService.instance.logCompressPdf();
+
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -97,6 +135,10 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
         );
       }
     } catch (e) {
+      AnalyticsService.instance.logErrorOccurred(
+        errorType: 'compress_failed',
+        message: e.toString(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to compress PDF: $e')),
@@ -121,23 +163,26 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Compressing PDF offline, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : _selectedFile == null
-              ? _buildEmptyState()
-              : Form(
+      body: Column(
+        children: [
+          Expanded(
+            child: _isProcessing
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          'Compressing PDF offline, please wait...',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : _selectedFile == null
+                    ? _buildEmptyState()
+                    : Form(
                   key: _formKey,
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
@@ -298,8 +343,15 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
                         ),
                       ],
                     ),
-                  ),
                 ),
+              ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            child: BannerAdWidget(visible: _selectedFile == null),
+          ),
+        ],
+      ),
     );
   }
 

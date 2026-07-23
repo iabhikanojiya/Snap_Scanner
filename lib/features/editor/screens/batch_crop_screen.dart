@@ -2,6 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
+import 'package:snap_scanner/core/exceptions/app_exceptions.dart';
+import 'package:snap_scanner/core/utils/file_utils.dart';
+import 'package:snap_scanner/core/utils/image_validator.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import 'package:snap_scanner/features/editor/screens/batch_filter_screen.dart';
 
@@ -15,6 +18,7 @@ class BatchCropScreen extends StatefulWidget {
 class _BatchCropScreenState extends State<BatchCropScreen> {
   late PageController _pageController;
   int _currentIndex = 0;
+  bool _isCropProcessing = false;
 
   @override
   void initState() {
@@ -32,10 +36,13 @@ class _BatchCropScreenState extends State<BatchCropScreen> {
     final provider = Provider.of<ScanProvider>(context, listen: false);
     if (provider.pages.isEmpty) return;
 
-    final page = provider.pages[_currentIndex];
-    final currentFile = page.displayFile;
+    if (_isCropProcessing) return;
+    setState(() => _isCropProcessing = true);
 
     try {
+      final page = provider.pages[_currentIndex];
+      final currentFile = page.displayFile;
+
       final croppedFile = await ImageCropper().cropImage(
         sourcePath: currentFile.path,
         uiSettings: [
@@ -53,15 +60,50 @@ class _BatchCropScreenState extends State<BatchCropScreen> {
       );
 
       if (croppedFile != null) {
-        provider.updatePageProcessedFile(page.id, File(croppedFile.path));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Crop failed: $e')),
+        final docPath = await FileUtils.getAppDocPath();
+        final permanentFile = await ImageValidator.validateAndCopyToPermanent(
+          File(croppedFile.path),
+          '$docPath/ProcessedImages',
         );
+        provider.updatePageProcessedFile(page.id, permanentFile);
       }
+    } on AppException catch (e) {
+      e.log();
+      if (!context.mounted) return;
+      _showErrorDialog(context, e.userMessage);
+    } catch (e) {
+      debugPrint('Crop failed: $e');
+      if (!context.mounted) return;
+      _showErrorDialog(
+        context,
+        'Could not crop the image.\n\nPlease try again.',
+      );
+    } finally {
+      if (mounted) setState(() => _isCropProcessing = false);
     }
+  }
+
+  void _showErrorDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red),
+            SizedBox(width: 10),
+            Text('Image Missing'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _goToNextStep() {
@@ -108,23 +150,32 @@ class _BatchCropScreenState extends State<BatchCropScreen> {
               ),
             ],
           ),
-          body: PageView.builder(
-            controller: _pageController,
-            itemCount: totalPages,
-            onPageChanged: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            itemBuilder: (context, index) {
-              final page = provider.pages[index];
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Image.file(page.displayFile, fit: BoxFit.contain),
+          body: Stack(
+            children: [
+              PageView.builder(
+                controller: _pageController,
+                itemCount: totalPages,
+                onPageChanged: (index) {
+                  setState(() {
+                    _currentIndex = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  final page = provider.pages[index];
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Image.file(page.displayFile, fit: BoxFit.contain),
+                    ),
+                  );
+                },
+              ),
+              if (_isCropProcessing)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(child: CircularProgressIndicator(color: Colors.white)),
                 ),
-              );
-            },
+            ],
           ),
           bottomNavigationBar: Container(
             color: Colors.black,
@@ -148,8 +199,8 @@ class _BatchCropScreenState extends State<BatchCropScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        onPressed: () => _cropCurrentImage(context),
-                        icon: const Icon(Icons.crop, color: Colors.white, size: 32),
+                        onPressed: _isCropProcessing ? null : () => _cropCurrentImage(context),
+                        icon: Icon(Icons.crop, color: _isCropProcessing ? Colors.grey : Colors.white, size: 32),
                       ),
                       const Text('Crop', style: TextStyle(color: Colors.white, fontSize: 12)),
                     ],

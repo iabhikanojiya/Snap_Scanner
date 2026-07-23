@@ -27,6 +27,7 @@ class _SignaturePositionScreenState extends State<SignaturePositionScreen> {
   int _selectedPage = 0;
   bool _isLoadingPdf = true;
   bool _isProcessing = false;
+  String? _loadError;
 
   double _positionX = 0.5;
   double _positionY = 0.7;
@@ -63,7 +64,10 @@ class _SignaturePositionScreenState extends State<SignaturePositionScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoadingPdf = false);
+        setState(() {
+          _isLoadingPdf = false;
+          _loadError = e.toString();
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load PDF: $e')),
         );
@@ -133,7 +137,35 @@ class _SignaturePositionScreenState extends State<SignaturePositionScreen> {
             )
           : _isLoadingPdf
               ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
-              : Column(
+              : _loadError != null || _pdfDocument == null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Failed to load PDF',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 32),
+                            child: Text(
+                              _loadError ?? 'PDF could not be opened',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Go Back'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
                   children: [
                     Expanded(
                       child: SingleChildScrollView(
@@ -464,9 +496,10 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
-    if (_error != null || _imageBytes == null) {
+    final bytes = _imageBytes;
+    if (_error != null || bytes == null) {
       return const Center(child: Icon(Icons.error_outline, color: Colors.red, size: 20));
     }
-    return Image.memory(_imageBytes!, fit: BoxFit.contain);
+    return Image.memory(bytes, fit: BoxFit.contain);
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
 import 'package:uuid/uuid.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 import '../services/resize_image_service.dart';
 import '../../pdf/screens/success_screen.dart';
 import '../../../core/models/pdf_file_model.dart';
@@ -180,23 +181,26 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Resizing image, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : _selectedFile == null
-              ? _buildEmptyState()
-              : SingleChildScrollView(
+      body: Column(
+        children: [
+          Expanded(
+            child: _isProcessing
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.blueAccent),
+                        SizedBox(height: 16),
+                        Text(
+                          'Resizing image, please wait...',
+                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : _selectedFile == null
+                    ? _buildEmptyState()
+                    : SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -455,6 +459,13 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
                     ],
                   ),
                 ),
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 300),
+                child: BannerAdWidget(visible: _selectedFile == null),
+              ),
+            ],
+          ),
     );
   }
 
