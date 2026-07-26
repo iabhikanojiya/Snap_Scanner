@@ -237,6 +237,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  double _bottomNavClearance(BuildContext context) {
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    const navBarHeight = 65.0;
+    const desiredGap = 10.0;
+    final navPosition = bottomPadding > 0 ? bottomPadding.toDouble() : 24.0;
+    return navPosition + navBarHeight + desiredGap;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -359,7 +367,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: BannerAdWidget(),
           ),
-          const SizedBox(height: 100),
+          SizedBox(
+            height: _bottomNavClearance(context),
+          ),
         ],
       ),
     );
