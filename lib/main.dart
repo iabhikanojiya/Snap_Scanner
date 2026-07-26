@@ -5,13 +5,17 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'core/theme/app_theme.dart';
 import 'core/services/ad_service.dart';
 import 'core/services/analytics_service.dart';
+import 'core/services/banner_ad_service.dart';
 import 'features/home/screens/home_screen.dart';
 import 'providers/scan_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  await AdService.instance.initialize();
+  await Future.wait([
+    AdService.instance.initialize(),
+    BannerAdService.instance.initialize(),
+  ]);
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
   AnalyticsService.instance.logAppOpen();
   runApp(const SnapScannerApp());
