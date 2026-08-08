@@ -31,6 +31,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   List<CameraDescription>? _cameras;
   int _denialCount = 0;
   bool _isProcessing = false;
+  bool _isDisposed = false;
+  bool _wasCameraActive = false;
   FlashMode _flashMode = FlashMode.off;
 
   @override
@@ -39,24 +41,30 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final provider = Provider.of<ScanProvider>(context, listen: false);
-        provider.clearPages();
-        provider.setToolType('scan_pdf');
-      }
+      if (!mounted) return;
+      final provider = Provider.of<ScanProvider>(context, listen: false);
+      provider.clearPages();
+      provider.setToolType('scan_pdf');
     });
   }
 
   Future<void> _startCamera() async {
-    if (_cameraUiState == _CameraUiState.requesting) return;
+    if (_cameraUiState == _CameraUiState.requesting || _isDisposed) return;
+
+    debugPrint('[Camera] Initializing...');
 
     setState(() {
       _cameraUiState = _CameraUiState.requesting;
     });
 
     try {
-      _cameras = await availableCameras();
-      if (_cameras == null || _cameras!.isEmpty) {
+      final cameras = await availableCameras();
+      if (!mounted || _isDisposed) {
+        debugPrint('[Camera] Disposed');
+        return;
+      }
+
+      if (cameras.isEmpty) {
         if (mounted) {
           setState(() {
             _cameraUiState = _CameraUiState.unavailable;
@@ -65,14 +73,33 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         return;
       }
 
-      _controller = CameraController(
-        _cameras![0],
+      final cameraController = CameraController(
+        cameras[0],
         ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.jpeg : ImageFormatGroup.bgra8888,
       );
 
-      await _controller!.initialize();
+      await cameraController.initialize();
+      if (!mounted || _isDisposed) {
+        debugPrint('[Camera] Disposed');
+        await cameraController.dispose();
+        return;
+      }
+
+      if (cameraController.value.hasError) {
+        debugPrint('[Camera] Initialization failed: ${cameraController.value.errorDescription}');
+        await cameraController.dispose();
+        if (mounted) {
+          setState(() {
+            _cameraUiState = _CameraUiState.unavailable;
+          });
+        }
+        return;
+      }
+
+      _controller = cameraController;
+      debugPrint('[Camera] Initialized');
 
       if (mounted) {
         setState(() {
@@ -80,7 +107,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         });
       }
     } catch (e) {
-      debugPrint("Camera initialization error: $e");
+      debugPrint('[Camera] Initialization error: $e');
       _controller?.dispose();
       _controller = null;
       if (mounted) {
@@ -102,19 +129,31 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
 
   @override
   void dispose() {
+    debugPrint('[Camera] Disposed');
+    _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive) {
+      _wasCameraActive = _cameraUiState == _CameraUiState.ready;
       _controller?.dispose();
       _controller = null;
+      if (_wasCameraActive && mounted) {
+        setState(() {
+          _cameraUiState = _CameraUiState.idle;
+        });
+      }
     } else if (state == AppLifecycleState.resumed) {
-      if (_cameraUiState == _CameraUiState.ready) {
-        _startCamera();
+      if (_wasCameraActive) {
+        _wasCameraActive = false;
+        if (mounted) {
+          _startCamera();
+        }
       }
     }
   }
@@ -467,10 +506,27 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   Widget _buildCameraView() {
+    final controller = _controller;
+    debugPrint('[Camera] Building preview');
+
+    if (controller == null) {
+      debugPrint('[Camera] Controller null');
+      return _buildLoadingView();
+    }
+
+    if (!controller.value.isInitialized) {
+      return _buildLoadingView();
+    }
+
+    if (controller.value.hasError) {
+      debugPrint('[Camera] Initialization failed');
+      return _buildCameraErrorView();
+    }
+
     return Stack(
       children: [
         SizedBox.expand(
-          child: CameraPreview(_controller!),
+          child: CameraPreview(controller),
         ),
         Positioned(
           top: 16,
@@ -613,6 +669,62 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCameraErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.error_outline, color: Colors.white70, size: 64),
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              'Camera Error',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'The camera encountered an error.\nPlease try again.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 36),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _startCamera,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
