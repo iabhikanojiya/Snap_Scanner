@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:snap_scanner/core/exceptions/app_exceptions.dart';
 import 'package:snap_scanner/core/services/ad_service.dart';
 import 'package:snap_scanner/core/services/analytics_service.dart';
-import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
+import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 
 class SuccessScreen extends StatefulWidget {
@@ -124,13 +124,13 @@ class _SuccessScreenState extends State<SuccessScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Column(
+          children: [
+            Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -265,11 +265,13 @@ class _SuccessScreenState extends State<SuccessScreen> {
                                             width: 2),
                                       ),
                                       onPressed: _openFile,
-                                      icon: const Icon(Icons.visibility,
+                                      icon: const Icon(
+                                          Icons.visibility,
                                           size: 20),
                                       label: const Text('Open',
                                           style: TextStyle(
-                                              fontWeight: FontWeight.bold,
+                                              fontWeight:
+                                                  FontWeight.bold,
                                               fontSize: 14)),
                                     ),
                                   ),
@@ -294,7 +296,8 @@ class _SuccessScreenState extends State<SuccessScreen> {
                                           size: 20),
                                       label: const Text('Share',
                                           style: TextStyle(
-                                              fontWeight: FontWeight.bold,
+                                              fontWeight:
+                                                  FontWeight.bold,
                                               fontSize: 14)),
                                     ),
                                   ),
@@ -324,9 +327,10 @@ class _SuccessScreenState extends State<SuccessScreen> {
                 ],
               ),
             ),
-          ),
-          const BannerAdWidget(),
-        ],
+            const SizedBox(height: 16),
+            const NativeAdWidget(),
+          ],
+        ),
       ),
     );
   }

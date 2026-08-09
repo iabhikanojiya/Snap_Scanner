@@ -54,7 +54,7 @@ class AdService {
 
   void onSuccessfulOperation() {
     _successfulOperationCount++;
-    if (_successfulOperationCount >= 3) {
+    if (_successfulOperationCount >= 2) {
       _successfulOperationCount = 0;
       final ad = _interstitialAd;
       _interstitialAd = null;

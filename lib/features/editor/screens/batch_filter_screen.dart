@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:snap_scanner/core/utils/image_utils.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import 'package:snap_scanner/features/review/screens/review_screen.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 
 class BatchFilterScreen extends StatefulWidget {
   const BatchFilterScreen({super.key});
@@ -222,6 +223,13 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SafeArea(
+                  top: false,
+                  child: const BannerAdWidget(),
                 ),
               ),
             ],

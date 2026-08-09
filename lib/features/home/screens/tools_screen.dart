@@ -8,6 +8,7 @@ import '../../../core/utils/image_utils.dart';
 import '../../../core/models/scanned_page.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/widgets/banner_ad_widget.dart';
+import '../../../core/widgets/native_ad_widget.dart';
 import '../../../providers/scan_provider.dart';
 import '../widgets/home_action_card.dart';
 
@@ -168,9 +169,9 @@ class _ToolsScreenState extends State<ToolsScreen> {
     );
   }
 
-  Widget _sectionHeader(String label) {
+  Widget _sectionHeader(String label, {double topPadding = 28}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 28, 24, 14),
+      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 14),
       child: Row(
         children: [
           Container(
@@ -375,9 +376,12 @@ class _ToolsScreenState extends State<ToolsScreen> {
                 ),
               ),
             ),
-
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              child: const BannerAdWidget(),
+            ),
             // --- DOCUMENT TOOLS ---
-            _sectionHeader('DOCUMENT TOOLS'),
+            _sectionHeader('DOCUMENT TOOLS', topPadding: 12),
 
             _toolsRow([
               HomeActionCard(
@@ -445,11 +449,8 @@ class _ToolsScreenState extends State<ToolsScreen> {
               ),
             ]),
 
-            const SizedBox(height: 32),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
-              child: BannerAdWidget(),
-            ),
+            const SizedBox(height: 16),
+            const NativeAdWidget(),
             const SizedBox(height: 40),
           ],
         ),

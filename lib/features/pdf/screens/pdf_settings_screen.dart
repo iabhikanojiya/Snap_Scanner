@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:intl/intl.dart';
 import 'package:snap_scanner/core/exceptions/app_exceptions.dart';
 import 'package:snap_scanner/core/services/analytics_service.dart';
+import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import '../services/pdf_service.dart';
 import 'success_screen.dart';
@@ -390,6 +391,9 @@ class _PdfSettingsScreenState extends State<PdfSettingsScreen> {
                             : Text(widget.buttonText ?? 'Generate PDF', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    const NativeAdWidget(),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),

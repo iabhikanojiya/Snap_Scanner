@@ -16,10 +16,8 @@ class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = [
-    const ToolsScreen(),
-    const HistoryScreen(),
-  ];
+  final GlobalKey<HistoryScreenState> _historyKey =
+      GlobalKey<HistoryScreenState>();
 
   @override
   void initState() {
@@ -81,12 +79,15 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 
                 // Screen Content
-                Expanded(
-                  child: IndexedStack(
-                    index: _currentIndex,
-                    children: _screens,
-                  ),
+              Expanded(
+                child: IndexedStack(
+                  index: _currentIndex,
+                  children: [
+                    const ToolsScreen(),
+                    HistoryScreen(key: _historyKey),
+                  ],
                 ),
+              ),
               ],
             ),
           ),
@@ -148,6 +149,9 @@ class _HomeScreenState extends State<HomeScreen>
         setState(() {
           _currentIndex = index;
         });
+        if (index == 1) {
+          _historyKey.currentState?.reload();
+        }
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

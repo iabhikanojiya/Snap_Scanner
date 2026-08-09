@@ -119,7 +119,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   @override
   Widget build(BuildContext context) {
     final c = _controller;
-    BannerAdService.log('Widget build | visible=${widget.visible} loading=${c != null && !c.isLoaded} loaded=${c?.isLoaded ?? false} hasBanner=${c?.bannerAd != null} bannerHeight=${c?.targetHeight ?? 0}');
+    BannerAdService.log('Widget build | visible=${widget.visible} loading=${c?.isLoading ?? false} loaded=${c?.isLoaded ?? false} timedOut=${c?.isLoadTimedOut ?? false} hasBanner=${c?.bannerAd != null} bannerHeight=${c?.targetHeight ?? 0}');
 
     if (!widget.visible) return const SizedBox.shrink();
 
@@ -144,15 +144,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       );
     }
 
-    return SizedBox(
-      height: height,
-      child: const Center(
-        child: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
+    // Only show the loading spinner while a request is actually in flight.
+    // After a failure or timeout (during backoff) there is no active request,
+    // so collapse the placeholder and keep the surrounding UI usable.
+    if (controller.isLoading && !controller.isLoadTimedOut) {
+      return SizedBox(
+        height: height,
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }

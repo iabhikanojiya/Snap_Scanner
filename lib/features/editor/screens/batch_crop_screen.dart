@@ -7,6 +7,7 @@ import 'package:snap_scanner/core/utils/file_utils.dart';
 import 'package:snap_scanner/core/utils/image_validator.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import 'package:snap_scanner/features/editor/screens/batch_filter_screen.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 
 class BatchCropScreen extends StatefulWidget {
   const BatchCropScreen({super.key});
@@ -177,47 +178,57 @@ class _BatchCropScreenState extends State<BatchCropScreen> {
                 ),
             ],
           ),
-          bottomNavigationBar: Container(
-            color: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: SafeArea(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    onPressed: _currentIndex > 0
-                        ? () {
-                            _pageController.previousPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          }
-                        : null,
-                    icon: Icon(Icons.arrow_back_ios, color: _currentIndex > 0 ? Colors.white : Colors.grey),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  color: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       IconButton(
-                        onPressed: _isCropProcessing ? null : () => _cropCurrentImage(context),
-                        icon: Icon(Icons.crop, color: _isCropProcessing ? Colors.grey : Colors.white, size: 32),
+                        onPressed: _currentIndex > 0
+                            ? () {
+                                _pageController.previousPage(
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              }
+                            : null,
+                        icon: Icon(Icons.arrow_back_ios, color: _currentIndex > 0 ? Colors.white : Colors.grey),
                       ),
-                      const Text('Crop', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: _isCropProcessing ? null : () => _cropCurrentImage(context),
+                            icon: Icon(Icons.crop, color: _isCropProcessing ? Colors.grey : Colors.white, size: 32),
+                          ),
+                          const Text('Crop', style: TextStyle(color: Colors.white, fontSize: 12)),
+                        ],
+                      ),
+                      IconButton(
+                        onPressed: _currentIndex < totalPages - 1
+                            ? () {
+                                _pageController.nextPage(
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              }
+                            : null,
+                        icon: Icon(Icons.arrow_forward_ios, color: _currentIndex < totalPages - 1 ? Colors.white : Colors.grey),
+                      ),
                     ],
                   ),
-                  IconButton(
-                    onPressed: _currentIndex < totalPages - 1
-                        ? () {
-                            _pageController.nextPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          }
-                        : null,
-                    icon: Icon(Icons.arrow_forward_ios, color: _currentIndex < totalPages - 1 ? Colors.white : Colors.grey),
-                  ),
-                ],
-              ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: const BannerAdWidget(),
+                ),
+              ],
             ),
           ),
         );

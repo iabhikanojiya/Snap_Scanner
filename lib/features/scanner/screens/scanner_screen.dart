@@ -19,7 +19,8 @@ enum _CameraUiState {
 }
 
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  final bool appendMode;
+  const ScannerScreen({super.key, this.appendMode = false});
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -43,8 +44,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = Provider.of<ScanProvider>(context, listen: false);
-      provider.clearPages();
-      provider.setToolType('scan_pdf');
+      if (!widget.appendMode) {
+        provider.clearPages();
+        provider.setToolType('scan_pdf');
+      }
     });
   }
 
@@ -220,6 +223,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   void _onDone() {
+    if (widget.appendMode) {
+      Navigator.pop(context);
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const BatchCropScreen()),

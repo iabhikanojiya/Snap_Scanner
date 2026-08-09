@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import 'package:snap_scanner/features/pdf/screens/pdf_settings_screen.dart';
 import 'package:snap_scanner/features/scanner/screens/scanner_screen.dart';
+import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
 
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({super.key});
@@ -108,11 +109,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const ScannerScreen()),
+            MaterialPageRoute(builder: (context) => const ScannerScreen(appendMode: true)),
           );
         },
         label: const Text("Add Pages"),
         icon: const Icon(Icons.add_a_photo),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: const BannerAdWidget(),
+        ),
       ),
     );
   }

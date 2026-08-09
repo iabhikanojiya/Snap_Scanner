@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:snap_scanner/core/services/analytics_service.dart';
-import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
+import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import '../services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
 
@@ -375,7 +375,7 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
                           ),
                         ),
 
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 24),
 
                         SizedBox(
                           width: double.infinity,
@@ -396,68 +396,77 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
                 ),
               ),
           ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            child: BannerAdWidget(visible: _selectedFile == null),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.lock,
-                color: Colors.blueGrey,
-                size: 64,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Select PDF to Lock',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a PDF file from your device storage to password protect it with AES-256 encryption.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: 200,
-              height: 50,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueGrey,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.lock,
+                      color: Colors.blueGrey,
+                      size: 64,
+                    ),
                   ),
-                ),
-                onPressed: _pickFile,
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text(
-                  'Select PDF',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Select PDF to Lock',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Choose a PDF file from your device storage to password protect it with AES-256 encryption.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    width: 200,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueGrey,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: _pickFile,
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: const Text(
+                        'Select PDF',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
-      ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SafeArea(
+            top: false,
+            child: const NativeAdWidget(),
+          ),
+        ),
+      ],
     );
   }
 }

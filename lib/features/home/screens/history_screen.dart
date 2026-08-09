@@ -15,10 +15,10 @@ class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
   @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
+  State<HistoryScreen> createState() => HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class HistoryScreenState extends State<HistoryScreen> {
   List<PdfFileModel> _recentFiles = [];
   bool _isLoading = true;
   String _selectedFilter = 'all';
@@ -61,6 +61,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadRecentFiles() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     final files = await DatabaseService.getAllFiles();
     if (mounted) {
@@ -69,6 +70,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void reload() {
+    _loadRecentFiles();
   }
 
   String _formatSize(int bytes) {
@@ -445,11 +450,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _buildRecentFilesList() {
     final files = _filteredFiles;
+    const adInterval = 3;
+    final adCount = files.length ~/ adInterval;
+    final itemCount = files.length + adCount;
     return ListView.builder(
       padding: const EdgeInsets.only(left: 24, right: 24, bottom: 100),
-      itemCount: files.length,
+      itemCount: itemCount,
       itemBuilder: (context, index) {
-        final file = files[index];
+        if ((index + 1) % (adInterval + 1) == 0) {
+          return const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: BannerAdWidget(),
+          );
+        }
+        final fileIndex = index - (index ~/ (adInterval + 1));
+        final file = files[fileIndex];
         final isImage = file.toolType == 'resize_image';
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
