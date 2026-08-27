@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/utils/file_utils.dart';
 import '../../../core/utils/image_utils.dart';
 import '../../../core/models/scanned_page.dart';
 import '../../../core/services/analytics_service.dart';
@@ -14,6 +15,8 @@ import '../widgets/home_action_card.dart';
 
 import 'package:snap_scanner/features/editor/screens/batch_crop_screen.dart';
 import 'package:snap_scanner/features/scanner/screens/scanner_screen.dart';
+import 'package:snap_scanner/features/scanner/services/mlkit_document_scanner_service.dart';
+import 'package:snap_scanner/features/pdf/screens/pdf_settings_screen.dart';
 import 'package:snap_scanner/features/merge/screens/pdf_merge_screen.dart';
 import 'package:snap_scanner/features/split/screens/pdf_split_screen.dart';
 import 'package:snap_scanner/features/compress/screens/pdf_compress_screen.dart';
@@ -31,11 +34,72 @@ class ToolsScreen extends StatefulWidget {
 }
 
 class _ToolsScreenState extends State<ToolsScreen> {
-  void _openScanner(BuildContext context) {
+  Future<void> _openScanner(BuildContext context) async {
+    // ML Kit Document Scanner is Android-only. Keep iOS behaviour unchanged.
+    if (!Platform.isAndroid) {
+      AnalyticsService.instance.logScanStarted();
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ScannerScreen()),
+      );
+      return;
+    }
+
     AnalyticsService.instance.logScanStarted();
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    provider.clearPages();
+    provider.setToolType('scan_pdf');
+
+    List<String>? imagePaths;
+    try {
+      imagePaths = await MlkitDocumentScannerService.scanDocuments();
+    } catch (e) {
+      debugPrint('[ToolsScreen] ML Kit scanner failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Scanner failed to start. Please try again.')),
+      );
+      return;
+    }
+
+    // Cancelled – do nothing, stay on Tools (no PDF, no error).
+    if (imagePaths == null || imagePaths.isEmpty) {
+      debugPrint('[ToolsScreen] ML Kit cancelled or no pages');
+      return;
+    }
+
+    // Convert scanned image paths into ScannedPage models for the existing
+    // PdfSettings → PdfService → Success flow.
+    for (final path in imagePaths) {
+      try {
+        final src = File(path);
+        if (!await src.exists()) {
+          debugPrint('[ToolsScreen] Missing scanned file: $path');
+          continue;
+        }
+        // Copy to app's permanent processed-images dir so the file persists
+        // for the downstream PDF generation (ML Kit files may be temporary).
+        final permFile = await FileUtils.createPermanentFile(extension: 'jpg');
+        await src.copy(permFile.path);
+        provider.addPage(ScannedPage(
+          id: const Uuid().v4(),
+          originalPath: permFile.path,
+          processedFile: permFile,
+        ));
+      } catch (e) {
+        debugPrint('[ToolsScreen] Failed to copy scanned file $path: $e');
+      }
+    }
+
+    if (!mounted) return;
+    if (provider.pages.isEmpty) {
+      return;
+    }
+
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const ScannerScreen()),
+      MaterialPageRoute(builder: (context) => const PdfSettingsScreen()),
     );
   }
 
