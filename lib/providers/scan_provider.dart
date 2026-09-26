@@ -5,9 +5,18 @@ import '../core/models/scanned_page.dart';
 class ScanProvider extends ChangeNotifier {
   List<ScannedPage> _pages = [];
   String _toolType = 'scan_pdf';
+  String? _appendToPdfPath;
 
   List<ScannedPage> get pages => _pages;
   String get toolType => _toolType;
+
+  /// When set, the generated PDF is this existing PDF followed by [pages]
+  /// (saved as a new file; the original is left unchanged).
+  String? get appendToPdfPath => _appendToPdfPath;
+
+  void setAppendTarget(String? pdfPath) {
+    _appendToPdfPath = pdfPath;
+  }
 
   void setToolType(String type) {
     _toolType = type;
@@ -43,6 +52,7 @@ class ScanProvider extends ChangeNotifier {
   void clearPages() {
     _pages = [];
     _toolType = 'scan_pdf';
+    _appendToPdfPath = null;
     notifyListeners();
   }
 }

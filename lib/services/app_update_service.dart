@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:flutter/services.dart';
+import '../core/widgets/app_dialog.dart';
 
 class AppUpdateService {
   AppUpdateService._();
@@ -113,27 +114,21 @@ class AppUpdateService {
   }
 
   void _showUpdateDialog(BuildContext context) {
-    showAdaptiveDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (dialogContext) => AlertDialog.adaptive(
-        title: const Text('Update Ready'),
-        content: const Text(
-          'Update downloaded. Restart now to install the latest version.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Later'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _completeUpdate();
-            },
-            child: const Text('Restart'),
-          ),
-        ],
+      builder: (dialogContext) => AppDialog(
+        tone: AppDialogTone.success,
+        icon: Icons.system_update_rounded,
+        title: 'Update Ready',
+        description: 'Update downloaded. Restart now to install the latest version.',
+        primaryLabel: 'Restart',
+        onPrimary: () {
+          Navigator.of(dialogContext).pop();
+          _completeUpdate();
+        },
+        secondaryLabel: 'Later',
+        onSecondary: () => Navigator.of(dialogContext).pop(),
       ),
     );
   }

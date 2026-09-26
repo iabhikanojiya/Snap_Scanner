@@ -6,9 +6,15 @@ import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import '../services/pdf_compress_service.dart';
 import '../../lock/services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/tool_ui.dart';
 
 class PdfCompressScreen extends StatefulWidget {
-  const PdfCompressScreen({super.key});
+  /// Opens the screen with this PDF already selected (skips the picker).
+  final String? initialPdfPath;
+
+  const PdfCompressScreen({super.key, this.initialPdfPath});
 
   @override
   State<PdfCompressScreen> createState() => _PdfCompressScreenState();
@@ -25,6 +31,10 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
   @override
   void initState() {
     super.initState();
+    final initialPath = widget.initialPdfPath;
+    if (initialPath != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialFile(initialPath));
+    }
     _nameController = TextEditingController();
   }
 
@@ -43,47 +53,7 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
       );
 
       if (result != null && result.files.isNotEmpty) {
-        final filePath = result.files.first.path!;
-        final file = File(filePath);
-
-        if (await PdfLockService.isPdfLocked(filePath)) {
-          if (mounted) {
-            await showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
-                title: const Row(
-                  children: [
-                    Icon(Icons.lock, color: Colors.orange),
-                    SizedBox(width: 10),
-                    Text('Locked PDF Selected'),
-                  ],
-                ),
-                content: Text(
-                  'The file "${file.path.split('/').last}" is '
-                  'password-protected and cannot be compressed.\n\n'
-                  'Please select a PDF that is not locked.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-            );
-          }
-          return;
-        }
-
-        final size = await file.length();
-
-        setState(() {
-          _selectedFile = file;
-          _originalSize = size;
-          _nameController.text = '${file.path.split('/').last.replaceAll('.pdf', '')}_compressed';
-        });
+        await _useFile(File(result.files.first.path!));
       }
     } catch (e) {
       if (mounted) {
@@ -92,6 +62,48 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
         );
       }
     }
+  }
+
+  Future<void> _openInitialFile(String path) async {
+    try {
+      await _useFile(File(path));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking file: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _useFile(File file) async {
+    if (await PdfLockService.isPdfLocked(file.path)) {
+      if (mounted) {
+        await showAppDialog(
+          context: context,
+          builder: (ctx) => AppDialog(
+            tone: AppDialogTone.warning,
+            icon: Icons.lock_outline_rounded,
+            title: 'Locked PDF Selected',
+            description:
+                'The file "${file.path.split('/').last}" is '
+                'password-protected and cannot be compressed.\n\n'
+                'Please select a PDF that is not locked.',
+            primaryLabel: 'OK',
+            onPrimary: () => Navigator.pop(ctx),
+          ),
+        );
+      }
+      return;
+    }
+
+    final size = await file.length();
+
+    setState(() {
+      _selectedFile = file;
+      _originalSize = size;
+      _nameController.text = '${file.path.split('/').last.replaceAll('.pdf', '')}_compressed';
+    });
   }
 
   String _formatSize(int bytes) {
@@ -130,7 +142,15 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => SuccessScreen(pdfFile: compressedFile),
+            builder: (context) => SuccessScreen(
+              pdfFile: compressedFile,
+              shortcuts: const [
+                SuccessShortcut.mergePdf,
+                SuccessShortcut.splitPdf,
+                SuccessShortcut.lockPdf,
+                SuccessShortcut.resizeImage,
+              ],
+            ),
           ),
         );
       }
@@ -155,199 +175,87 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ready = !_isProcessing && _selectedFile != null;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text('Compress PDF', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _isProcessing
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: Colors.blueAccent),
-                        SizedBox(height: 16),
-                        Text(
-                          'Compressing PDF offline, please wait...',
-                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                : _selectedFile == null
-                    ? _buildEmptyState()
-                    : Form(
+      backgroundColor: AppColors.background,
+      appBar: toolAppBar(context, 'Compress PDF'),
+      body: _isProcessing
+          ? const ToolProcessingView(message: 'Compressing your PDF...')
+          : _selectedFile == null
+              ? _buildEmptyState()
+              : Form(
                   key: _formKey,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Selected File Info Card
-                        Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    children: [
+                      SelectedFileCard(
+                        icon: Icons.compress_rounded,
+                        color: AppColors.toolCompress,
+                        name: _selectedFile!.path.split('/').last,
+                        meta: _formatSize(_originalSize),
+                        onChange: _pickFile,
+                      ),
+                      const SizedBox(height: 16),
+                      ToolSectionCard(
+                        title: 'File name',
+                        child: TextFormField(
+                          controller: _nameController,
+                          decoration: toolInputDecoration(
+                            hint: 'Compressed file name',
+                            icon: Icons.edit_document,
+                            suffixText: '.pdf',
                           ),
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Selected File',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(Icons.picture_as_pdf, color: Colors.red),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _selectedFile!.path.split('/').last,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _formatSize(_originalSize),
-                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.refresh, color: Colors.blueAccent),
-                                    onPressed: _pickFile,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter a name';
+                            }
+                            return null;
+                          },
                         ),
-                        const SizedBox(height: 24),
-
-                        // Form settings
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('File Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _nameController,
-                                decoration: InputDecoration(
-                                  labelText: 'File Name',
-                                  prefixIcon: const Icon(Icons.edit_document),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                  suffixText: '.pdf',
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Please enter a name';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Compression Quality Selector
-                        const Text(
-                          'Compression Level',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildQualityCard(
-                          quality: PdfCompressQuality.high,
-                          title: 'High Quality',
-                          subtitle: 'Slight compression, preserves maximum detail',
-                          estimation: 'Est. 10% - 30% reduction',
-                          icon: Icons.high_quality,
-                          color: Colors.green,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildQualityCard(
-                          quality: PdfCompressQuality.medium,
-                          title: 'Medium Compression',
-                          subtitle: 'Balanced file size and quality',
-                          estimation: 'Est. 40% - 60% reduction',
-                          icon: Icons.speed,
-                          color: Colors.orange,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildQualityCard(
-                          quality: PdfCompressQuality.low,
-                          title: 'Maximum Compression',
-                          subtitle: 'Smallest file size, lower image resolution',
-                          estimation: 'Est. 70% - 80% reduction',
-                          icon: Icons.compress,
-                          color: Colors.red,
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Action Button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueAccent,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              elevation: 2,
-                            ),
-                            onPressed: _compressPdf,
-                            child: const Text('Compress PDF', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 22),
+                      const Padding(
+                        padding: EdgeInsets.only(left: 4, bottom: 10),
+                        child: Text('Compression level', style: toolSectionTitleStyle),
+                      ),
+                      _buildQualityCard(
+                        quality: PdfCompressQuality.high,
+                        title: 'High Quality',
+                        subtitle: 'Slight compression, preserves maximum detail',
+                        estimation: 'Est. 10% - 30% reduction',
+                        icon: Icons.high_quality_rounded,
+                        color: const Color(0xFF16A34A),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildQualityCard(
+                        quality: PdfCompressQuality.medium,
+                        title: 'Medium Compression',
+                        subtitle: 'Balanced file size and quality',
+                        estimation: 'Est. 40% - 60% reduction',
+                        icon: Icons.speed_rounded,
+                        color: const Color(0xFFEA580C),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildQualityCard(
+                        quality: PdfCompressQuality.low,
+                        title: 'Maximum Compression',
+                        subtitle: 'Smallest file size, lower image resolution',
+                        estimation: 'Est. 70% - 80% reduction',
+                        icon: Icons.compress_rounded,
+                        color: AppColors.toolCompress,
+                      ),
+                    ],
+                  ),
                 ),
+      bottomNavigationBar: ready
+          ? ToolBottomBar(
+              child: ToolPrimaryButton(
+                label: 'Compress PDF',
+                icon: Icons.compress_rounded,
+                onPressed: _compressPdf,
               ),
-          ),
-        ],
-      ),
+            )
+          : null,
     );
   }
 
@@ -359,147 +267,29 @@ class _PdfCompressScreenState extends State<PdfCompressScreen> {
     required IconData icon,
     required Color color,
   }) {
-    final isSelected = _selectedQuality == quality;
-
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedQuality = quality;
-        });
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? Colors.blueAccent : Colors.transparent,
-            width: 2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.02),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    estimation,
-                    style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
-            Radio<PdfCompressQuality>(
-              value: quality,
-              groupValue: _selectedQuality,
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    _selectedQuality = val;
-                  });
-                }
-              },
-              activeColor: Colors.blueAccent,
-            ),
-          ],
-        ),
-      ),
+    return ToolOptionTile(
+      selected: _selectedQuality == quality,
+      icon: icon,
+      color: color,
+      title: title,
+      subtitle: subtitle,
+      tag: estimation,
+      onTap: () => setState(() => _selectedQuality = quality),
     );
   }
 
   Widget _buildEmptyState() {
-    return Column(
-      children: [
-        Expanded(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.compress,
-                      color: Colors.orange,
-                      size: 64,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Select PDF to Compress',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Choose a PDF file from your device storage to optimize images and compress the file size offline.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: 200,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _pickFile,
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text(
-                        'Select PDF',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: SafeArea(
-            top: false,
-            child: const NativeAdWidget(),
-          ),
-        ),
-      ],
+    return ToolEmptyWithAd(
+      empty: ToolEmptyState(
+        icon: Icons.compress_rounded,
+        color: AppColors.toolCompress,
+        title: 'Select PDF to Compress',
+        message: 'Choose a PDF file from your device storage to optimize images and compress the file size offline.',
+        buttonLabel: 'Select PDF',
+        buttonIcon: Icons.picture_as_pdf_rounded,
+        onPressed: _pickFile,
+      ),
+      ad: const NativeAdWidget(),
     );
   }
 }

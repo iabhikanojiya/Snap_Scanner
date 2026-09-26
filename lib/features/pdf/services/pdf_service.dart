@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'dart:ui' show Offset;
+import 'package:flutter/foundation.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:uuid/uuid.dart';
@@ -16,6 +19,8 @@ class PdfService {
     required PdfPageFormat format,
     required String toolType,
     void Function(String step)? onProgress,
+    /// Existing PDF whose pages go before the new pages.
+    String? prependPdfPath,
   }) async {
     onProgress?.call('validating');
 
@@ -53,7 +58,11 @@ class PdfService {
     }
 
     onProgress?.call('saving');
-    final bytes = await pdf.save();
+    List<int> bytes = await pdf.save();
+    if (prependPdfPath != null) {
+      final existing = await File(prependPdfPath).readAsBytes();
+      bytes = await compute(_prependPdf, (existing, Uint8List.fromList(bytes)));
+    }
 
     final file = await StorageService.savePdfFile(fileName, bytes);
 
@@ -70,5 +79,27 @@ class PdfService {
 
     onProgress?.call('done');
     return file;
+  }
+
+  /// Returns a PDF with all pages of `job.$1` followed by all pages of `job.$2`.
+  static List<int> _prependPdf((Uint8List, Uint8List) job) {
+    final output = sf.PdfDocument();
+    sf.PdfSection? section;
+    for (final bytes in [job.$1, job.$2]) {
+      final source = sf.PdfDocument(inputBytes: bytes);
+      for (var i = 0; i < source.pages.count; i++) {
+        final template = source.pages[i].createTemplate();
+        if (section == null || section.pageSettings.size != template.size) {
+          section = output.sections!.add();
+          section.pageSettings.size = template.size;
+          section.pageSettings.margins.all = 0;
+        }
+        section.pages.add().graphics.drawPdfTemplate(template, const Offset(0, 0));
+      }
+      source.dispose();
+    }
+    final result = output.saveSync();
+    output.dispose();
+    return result;
   }
 }

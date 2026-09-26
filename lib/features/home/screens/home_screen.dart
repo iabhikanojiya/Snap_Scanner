@@ -1,9 +1,12 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:snap_scanner/features/settings/screens/settings_screen.dart';
 import 'package:snap_scanner/services/app_update_service.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/glass_bottom_nav.dart';
+import '../../documents/screens/pdf_home_screen.dart';
+// Upgrade UI temporarily hidden; restore this import with the tab below.
+// import '../../upgrade/screens/upgrade_screen.dart';
 import 'tools_screen.dart';
-import 'history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,11 +16,52 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  // Was 3 while the Upgrade tab was shown.
+  static const int _settingsTab = 2;
+
+  static const _navItems = [
+    GlassNavItem(
+      icon: Icons.picture_as_pdf_outlined,
+      activeIcon: Icons.picture_as_pdf_rounded,
+      label: 'PDF',
+    ),
+    GlassNavItem(
+      icon: Icons.grid_view_outlined,
+      activeIcon: Icons.grid_view_rounded,
+      label: 'Tools',
+    ),
+    // Upgrade tab temporarily hidden.
+    // GlassNavItem(
+    //   icon: Icons.workspace_premium_outlined,
+    //   activeIcon: Icons.workspace_premium_rounded,
+    //   label: 'Upgrade',
+    // ),
+    GlassNavItem(
+      icon: Icons.settings_outlined,
+      activeIcon: Icons.settings_rounded,
+      label: 'Settings',
+    ),
+  ];
+
   int _currentIndex = 0;
 
-  final GlobalKey<HistoryScreenState> _historyKey =
-      GlobalKey<HistoryScreenState>();
+  // Tabs are built the first time they are opened and then kept alive, so
+  // their ads/controllers are created once and never on every switch.
+  final Set<int> _builtTabs = {0};
+
+  final GlobalKey<SettingsScreenState> _settingsKey =
+      GlobalKey<SettingsScreenState>();
+
+  late final AnimationController _fadeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+    value: 1,
+  );
+  late final Animation<double> _fade = CurvedAnimation(
+    parent: _fadeController,
+    curve: Curves.easeOut,
+  ).drive(Tween(begin: 0.35, end: 1.0));
 
   @override
   void initState() {
@@ -31,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _fadeController.dispose();
     super.dispose();
   }
 
@@ -41,145 +86,71 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _onTabSelected(int index) {
+    if (index == _currentIndex) return;
+    setState(() {
+      _currentIndex = index;
+      _builtTabs.add(index);
+    });
+    _fadeController.forward(from: 0);
+    if (index == _settingsTab) {
+      // PDFs may have been added/deleted from the PDF tab (cheap count query).
+      _settingsKey.currentState?.refreshProfile();
+    }
+  }
+
+  Widget _buildTab(int index) {
+    switch (index) {
+      case 0:
+        return const PdfHomeScreen();
+      case 1:
+        return const ToolsScreen();
+      // Upgrade tab temporarily hidden.
+      // case 2:
+      //   return const UpgradeScreen();
+      default:
+        return SettingsScreen(key: _settingsKey);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // Main Body with AnimatedSwitcher for smooth transitions
-          SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                // Top App Bar Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'SnapScanner',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).textTheme.titleLarge?.color,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-                        child: const Icon(
-                          Icons.settings,
-                          color: Colors.black,
-                          size: 28,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Screen Content
-              Expanded(
-                child: IndexedStack(
-                  index: _currentIndex,
-                  children: [
-                    const ToolsScreen(),
-                    HistoryScreen(key: _historyKey),
-                  ],
-                ),
+          Positioned.fill(
+            child: FadeTransition(
+              opacity: _fade,
+              child: IndexedStack(
+                index: _currentIndex,
+                children: [
+                  for (var i = 0; i < _navItems.length; i++)
+                    _builtTabs.contains(i)
+                        ? TickerMode(
+                            enabled: i == _currentIndex,
+                            child: _buildTab(i),
+                          )
+                        : const SizedBox.shrink(),
+                ],
               ),
-              ],
             ),
           ),
 
-          // Floating iOS-Style Bottom Navigation Bar
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: MediaQuery.of(context).padding.bottom > 0 ? MediaQuery.of(context).padding.bottom : 24,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  height: 65,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.85),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.white.withOpacity(0.2)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildNavItem(
-                        index: 0,
-                        icon: Icons.grid_view_rounded,
-                        label: 'Tools',
-                      ),
-                      _buildNavItem(
-                        index: 1,
-                        icon: Icons.history_rounded,
-                        label: 'History',
-                      ),
-                    ],
-                  ),
-                ),
+          // Floating glass bottom navigation (hidden while typing so it
+          // does not float above the keyboard over the content).
+          if (MediaQuery.viewInsetsOf(context).bottom == 0)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: GlassBottomNav.bottomOffset(context),
+              child: GlassBottomNav(
+                items: _navItems,
+                currentIndex: _currentIndex,
+                onTap: _onTabSelected,
               ),
             ),
-          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildNavItem({required int index, required IconData icon, required String label}) {
-    final isSelected = _currentIndex == index;
-    final primaryColor = Colors.blueAccent;
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() {
-          _currentIndex = index;
-        });
-        if (index == 1) {
-          _historyKey.currentState?.reload();
-        }
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? primaryColor : Colors.grey.shade600,
-              size: 24,
-            ),
-            if (isSelected) ...[
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: primaryColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }

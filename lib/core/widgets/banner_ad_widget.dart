@@ -7,7 +7,11 @@ import '../services/banner_ad_service.dart';
 class BannerAdWidget extends StatefulWidget {
   final bool visible;
 
-  const BannerAdWidget({super.key, this.visible = true});
+  /// Standard 320x50 banner without bottom safe-area padding, for spots
+  /// where the surrounding layout already accounts for the system inset.
+  final bool compact;
+
+  const BannerAdWidget({super.key, this.visible = true, this.compact = false});
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -92,7 +96,10 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       return;
     }
     BannerAdService.log('_createController() | screenWidth=$_screenWidth');
-    _controller = BannerAdController(adUnitId: AdConfig.bannerAdUnitId);
+    _controller = BannerAdController(
+      adUnitId: AdConfig.bannerAdUnitId,
+      compact: widget.compact,
+    );
     BannerAdService.log('Listener attached');
     _controller!.addListener(_onControllerChanged);
     _controller!.show(screenWidth: _screenWidth);
@@ -131,35 +138,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     final hasAd = controller.bannerAd != null;
 
     if (isLoaded && hasAd) {
+      final ad = SizedBox(
+        width: controller.effectiveSize.width.toDouble(),
+        height: height,
+        child: AdWidget(ad: controller.bannerAd!),
+      );
+      if (widget.compact) return Center(child: ad);
       return Container(
         color: Colors.transparent,
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            width: controller.effectiveSize.width.toDouble(),
-            height: height,
-            child: AdWidget(ad: controller.bannerAd!),
-          ),
-        ),
+        child: SafeArea(top: false, child: ad),
       );
     }
 
-    // Only show the loading spinner while a request is actually in flight.
-    // After a failure or timeout (during backoff) there is no active request,
-    // so collapse the placeholder and keep the surrounding UI usable.
-    if (controller.isLoading && !controller.isLoadTimedOut) {
-      return SizedBox(
-        height: height,
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
-    }
-
+    // No placeholder while loading or retrying: the slot stays collapsed
+    // until an ad has actually loaded, then the ad appears and stays. A
+    // loading box that appeared and collapsed on every background retry made
+    // the surrounding layout jump.
     return const SizedBox.shrink();
   }
 }

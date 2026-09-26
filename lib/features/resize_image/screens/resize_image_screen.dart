@@ -1,13 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:image/image.dart' as img;
 import 'package:uuid/uuid.dart';
 import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import '../services/resize_image_service.dart';
 import '../../pdf/screens/success_screen.dart';
 import '../../../core/models/pdf_file_model.dart';
 import '../../../core/services/database_service.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/document_icon.dart';
+import '../../../core/widgets/tool_ui.dart';
 
 class ResizeImageScreen extends StatefulWidget {
   const ResizeImageScreen({super.key});
@@ -27,6 +29,7 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
   ResizeFormat _format = ResizeFormat.jpeg;
   double _quality = 85;
   bool _isProcessing = false;
+  bool _isLoadingImage = false;
 
   static const _presets = [
     {'label': 'HD (1920x1080)', 'w': 1920, 'h': 1080},
@@ -51,17 +54,23 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
     super.dispose();
   }
 
+  /// True while the picker is open or the picked image is being read, so
+  /// repeated taps can't open a second picker ("already_active" error).
+  bool _isPicking = false;
+
   Future<void> _pickImage() async {
+    if (_isPicking) return;
+    _isPicking = true;
     try {
       final picker = ImagePicker();
       final image = await picker.pickImage(source: ImageSource.gallery);
       if (image == null) return;
 
+      if (mounted) setState(() => _isLoadingImage = true);
       final file = File(image.path);
-      final bytes = await file.readAsBytes();
-      final decoded = img.decodeImage(bytes);
+      final size = await ResizeImageService.readDimensions(file);
 
-      if (decoded == null) {
+      if (size == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Failed to decode image.')),
@@ -70,12 +79,14 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
         return;
       }
 
+      if (!mounted) return;
+      final (width, height) = size;
       setState(() {
         _selectedFile = file;
-        _originalWidth = decoded.width;
-        _originalHeight = decoded.height;
-        _widthController.text = decoded.width.toString();
-        _heightController.text = decoded.height.toString();
+        _originalWidth = width;
+        _originalHeight = height;
+        _widthController.text = width.toString();
+        _heightController.text = height.toString();
         _nameController.text = file.path.split('/').last.replaceAll(RegExp(r'\.[^.]+$'), '');
       });
     } catch (e) {
@@ -84,6 +95,9 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
           SnackBar(content: Text('Error picking image: $e')),
         );
       }
+    } finally {
+      _isPicking = false;
+      if (mounted && _isLoadingImage) setState(() => _isLoadingImage = false);
     }
   }
 
@@ -154,6 +168,7 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
               icon: Icons.photo_size_select_large,
               iconColor: Colors.pink,
               title: 'Image Resized Successfully!',
+              shortcuts: const [SuccessShortcut.scanPdf, SuccessShortcut.imageToPdf],
               fileIcon: Icons.image,
               fileIconColor: Colors.pink,
             ),
@@ -173,364 +188,248 @@ class _ResizeImageScreenState extends State<ResizeImageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ready = !_isProcessing && !_isLoadingImage && _selectedFile != null;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text('Resize Image', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _isProcessing
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: Colors.blueAccent),
-                        SizedBox(height: 16),
-                        Text(
-                          'Resizing image, please wait...',
-                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                : _selectedFile == null
-                    ? _buildEmptyState()
-                    : SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Selected Image',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.pink.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.image, color: Colors.pink),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _selectedFile!.path.split('/').last,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '$_originalWidth x $_originalHeight px',
-                                        style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.refresh, color: Colors.blueAccent),
-                                  onPressed: _pickImage,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text('Dimensions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                const Spacer(),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Text('Lock ratio', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                    Switch(
-                                      value: _keepAspectRatio,
-                                      onChanged: (v) => setState(() => _keepAspectRatio = v),
-                                      activeColor: Colors.blueAccent,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _widthController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      labelText: 'Width (px)',
-                                      prefixIcon: const Icon(Icons.arrow_right_alt),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    onChanged: _onWidthChanged,
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  child: Text('x', style: TextStyle(fontSize: 20, color: Colors.grey.shade600)),
-                                ),
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _heightController,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      labelText: 'Height (px)',
-                                      prefixIcon: const Icon(Icons.arrow_downward),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    onChanged: _onHeightChanged,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Presets', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: _presets.map((preset) {
-                                return ActionChip(
-                                  label: Text(preset['label'] as String, style: const TextStyle(fontSize: 12)),
-                                  onPressed: () {
-                                    setState(() {
-                                      _widthController.text = preset['w'].toString();
-                                      _heightController.text = preset['h'].toString();
-                                    });
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Output Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _nameController,
-                              decoration: InputDecoration(
-                                labelText: 'File Name',
-                                prefixIcon: const Icon(Icons.edit_document),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: AppColors.background,
+      appBar: toolAppBar(context, 'Resize Image'),
+      body: _isProcessing
+          ? const ToolProcessingView(message: 'Resizing your image...')
+          : _isLoadingImage
+              ? const ToolProcessingView(message: 'Loading image...')
+          : _selectedFile == null
+              ? _buildEmptyState()
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                  children: [
+                    ToolSectionCard(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              _selectedFile!,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              cacheWidth: 168,
+                              errorBuilder: (_, _, _) => const DocumentIcon(
+                                icon: Icons.photo_size_select_large_rounded,
+                                color: AppColors.toolResize,
+                                size: 56,
                               ),
                             ),
-                            const SizedBox(height: 16),
-                            Row(
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Format:', style: TextStyle(fontWeight: FontWeight.w600)),
-                                const SizedBox(width: 16),
-                                SegmentedButton<ResizeFormat>(
-                                  segments: const [
-                                    ButtonSegment(value: ResizeFormat.jpeg, label: Text('JPEG'), icon: Icon(Icons.image, size: 18)),
-                                    ButtonSegment(value: ResizeFormat.png, label: Text('PNG'), icon: Icon(Icons.image_outlined, size: 18)),
-                                  ],
-                                  selected: {_format},
-                                  onSelectionChanged: (s) => setState(() => _format = s.first),
+                                Text(
+                                  _selectedFile!.path.split('/').last,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '$_originalWidth × $_originalHeight px',
+                                  style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
                                 ),
                               ],
                             ),
-                            if (_format == ResizeFormat.jpeg) ...[
-                              const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  const Text('Quality:', style: TextStyle(fontWeight: FontWeight.w600)),
-                                  Expanded(
-                                    child: Slider(
-                                      value: _quality,
-                                      min: 10,
-                                      max: 100,
-                                      divisions: 9,
-                                      label: '${_quality.round()}%',
-                                      onChanged: (v) => setState(() => _quality = v),
-                                    ),
-                                  ),
-                                  Text('${_quality.round()}%', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                ],
+                          ),
+                          TextButton(
+                            onPressed: _pickImage,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.brandRed,
+                              textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                            ),
+                            child: const Text('Change'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ToolSectionCard(
+                      title: 'Dimensions',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Lock ratio', style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                          Switch(
+                            value: _keepAspectRatio,
+                            onChanged: (v) => setState(() => _keepAspectRatio = v),
+                            activeThumbColor: Colors.white,
+                            activeTrackColor: AppColors.brandRed,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _widthController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: toolInputDecoration(label: 'Width (px)'),
+                                  onChanged: _onWidthChanged,
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10),
+                                child: Text('×', style: TextStyle(fontSize: 18, color: AppColors.textSecondary)),
+                              ),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _heightController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: toolInputDecoration(label: 'Height (px)'),
+                                  onChanged: _onHeightChanged,
+                                ),
                               ),
                             ],
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.pink,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            elevation: 2,
                           ),
-                          onPressed: _resize,
-                          child: const Text('Resize Image', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Presets',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _presets.map((preset) {
+                              final active = _widthController.text == preset['w'].toString() &&
+                                  _heightController.text == preset['h'].toString();
+                              return ChoiceChip(
+                                label: Text(preset['label'] as String),
+                                selected: active,
+                                showCheckmark: false,
+                                labelStyle: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: active ? AppColors.brandRed : AppColors.textPrimary,
+                                ),
+                                backgroundColor: const Color(0xFFF3F4F6),
+                                selectedColor: AppColors.brandRed.withValues(alpha: 0.1),
+                                side: BorderSide(color: active ? AppColors.brandRed : Colors.transparent),
+                                shape: const StadiumBorder(),
+                                onSelected: (_) {
+                                  setState(() {
+                                    _widthController.text = preset['w'].toString();
+                                    _heightController.text = preset['h'].toString();
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    ToolSectionCard(
+                      title: 'Output',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextFormField(
+                            controller: _nameController,
+                            decoration: toolInputDecoration(hint: 'File name', icon: Icons.edit_document),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Format',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<ResizeFormat>(
+                              segments: const [
+                                ButtonSegment(value: ResizeFormat.jpeg, label: Text('JPEG')),
+                                ButtonSegment(value: ResizeFormat.png, label: Text('PNG')),
+                              ],
+                              selected: {_format},
+                              showSelectedIcon: false,
+                              style: SegmentedButton.styleFrom(
+                                selectedBackgroundColor: AppColors.brandRed.withValues(alpha: 0.1),
+                                selectedForegroundColor: AppColors.brandRed,
+                                foregroundColor: AppColors.textPrimary,
+                                side: const BorderSide(color: AppColors.border),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              onSelectionChanged: (s) => setState(() => _format = s.first),
+                            ),
+                          ),
+                          if (_format == ResizeFormat.jpeg) ...[
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                const Text(
+                                  'Quality',
+                                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                                ),
+                                const Spacer(),
+                                Text(
+                                  '${_quality.round()}%',
+                                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                ),
+                              ],
+                            ),
+                            SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                activeTrackColor: AppColors.brandRed,
+                                thumbColor: AppColors.brandRed,
+                                inactiveTrackColor: AppColors.brandRed.withValues(alpha: 0.15),
+                                overlayColor: AppColors.brandRed.withValues(alpha: 0.1),
+                                valueIndicatorColor: AppColors.brandRed,
+                              ),
+                              child: Slider(
+                                value: _quality,
+                                min: 10,
+                                max: 100,
+                                divisions: 9,
+                                label: '${_quality.round()}%',
+                                onChanged: (v) => setState(() => _quality = v),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+      bottomNavigationBar: ready
+          ? ToolBottomBar(
+              child: ToolPrimaryButton(
+                label: 'Resize Image',
+                icon: Icons.photo_size_select_large_rounded,
+                onPressed: _resize,
               ),
-        ],
-      ),
+            )
+          : null,
     );
   }
 
   Widget _buildEmptyState() {
-    return Column(
-      children: [
-        Expanded(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.pink.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.photo_size_select_large,
-                      color: Colors.pink,
-                      size: 64,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Select Image to Resize',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Choose an image from your gallery to resize to your desired dimensions.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: 200,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.pink,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _pickImage,
-                      icon: const Icon(Icons.image),
-                      label: const Text(
-                        'Select Image',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: SafeArea(
-            top: false,
-            child: const NativeAdWidget(),
-          ),
-        ),
-      ],
+    return ToolEmptyWithAd(
+      empty: ToolEmptyState(
+        icon: Icons.photo_size_select_large_rounded,
+        color: AppColors.toolResize,
+        title: 'Select Image to Resize',
+        message: 'Choose an image from your gallery to resize to your desired dimensions.',
+        buttonLabel: 'Select Image',
+        buttonIcon: Icons.image_rounded,
+        onPressed: _pickImage,
+      ),
+      ad: const NativeAdWidget(),
     );
   }
 }

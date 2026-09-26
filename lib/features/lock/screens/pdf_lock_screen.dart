@@ -5,9 +5,15 @@ import 'package:snap_scanner/core/services/analytics_service.dart';
 import 'package:snap_scanner/core/widgets/native_ad_widget.dart';
 import '../services/pdf_lock_service.dart';
 import '../../pdf/screens/success_screen.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_dialog.dart';
+import '../../../core/widgets/tool_ui.dart';
 
 class PdfLockScreen extends StatefulWidget {
-  const PdfLockScreen({super.key});
+  /// Opens the screen with this PDF already selected (skips the picker).
+  final String? initialPdfPath;
+
+  const PdfLockScreen({super.key, this.initialPdfPath});
 
   @override
   State<PdfLockScreen> createState() => _PdfLockScreenState();
@@ -25,6 +31,10 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
   @override
   void initState() {
     super.initState();
+    final initialPath = widget.initialPdfPath;
+    if (initialPath != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialFile(initialPath));
+    }
     _nameController = TextEditingController();
     _passwordController = TextEditingController();
     _confirmPasswordController = TextEditingController();
@@ -47,44 +57,7 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
       );
 
       if (result != null && result.files.isNotEmpty) {
-        final filePath = result.files.first.path!;
-        final file = File(filePath);
-
-        if (await PdfLockService.isPdfLocked(filePath)) {
-          if (mounted) {
-            await showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
-                title: const Row(
-                  children: [
-                    Icon(Icons.lock, color: Colors.orange),
-                    SizedBox(width: 10),
-                    Text('Locked PDF Selected'),
-                  ],
-                ),
-                content: Text(
-                  'The file "${file.path.split('/').last}" is '
-                  'already password-protected.\n\n'
-                  'Please select a PDF that is not locked.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-            );
-          }
-          return;
-        }
-
-        setState(() {
-          _selectedFile = file;
-          _nameController.text = '${file.path.split('/').last.replaceAll('.pdf', '')}_locked';
-        });
+        await _useFile(File(result.files.first.path!));
       }
     } catch (e) {
       if (mounted) {
@@ -93,6 +66,45 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         );
       }
     }
+  }
+
+  Future<void> _openInitialFile(String path) async {
+    try {
+      await _useFile(File(path));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking file: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _useFile(File file) async {
+    if (await PdfLockService.isPdfLocked(file.path)) {
+      if (mounted) {
+        await showAppDialog(
+          context: context,
+          builder: (ctx) => AppDialog(
+            tone: AppDialogTone.warning,
+            icon: Icons.lock_outline_rounded,
+            title: 'Locked PDF Selected',
+            description:
+                'The file "${file.path.split('/').last}" is '
+                'already password-protected.\n\n'
+                'Please select a PDF that is not locked.',
+            primaryLabel: 'OK',
+            onPrimary: () => Navigator.pop(ctx),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _selectedFile = file;
+      _nameController.text = '${file.path.split('/').last.replaceAll('.pdf', '')}_locked';
+    });
   }
 
   Future<void> _lockPdf() async {
@@ -125,7 +137,7 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => SuccessScreen(pdfFile: lockedFile),
+            builder: (context) => SuccessScreen(pdfFile: lockedFile, shortcuts: const []),
           ),
         );
       }
@@ -137,27 +149,16 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
       if (mounted) {
         final msg = e.toString().toLowerCase();
         if (msg.contains('protected') || msg.contains('password') || msg.contains('encrypted')) {
-          showDialog(
+          showAppDialog(
             context: context,
-            builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Row(
-                children: [
-                  const Icon(Icons.lock, color: Colors.orange),
-                  const SizedBox(width: 10),
-                  const Text('Already Protected'),
-                ],
-              ),
-              content: const Text(
-                'This PDF is already password-protected. '
-                'Please select a PDF that is not locked.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('OK'),
-                ),
-              ],
+            builder: (ctx) => AppDialog(
+              tone: AppDialogTone.warning,
+              icon: Icons.lock_outline_rounded,
+              title: 'Already Protected',
+              description: 'This PDF is already password-protected. '
+                  'Please select a PDF that is not locked.',
+              primaryLabel: 'OK',
+              onPrimary: () => Navigator.pop(ctx),
             ),
           );
         } else {
@@ -177,296 +178,129 @@ class _PdfLockScreenState extends State<PdfLockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ready = !_isProcessing && _selectedFile != null;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text('Lock PDF', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _isProcessing
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: Colors.blueAccent),
-                        SizedBox(height: 16),
-                        Text(
-                          'Encrypting PDF offline, please wait...',
-                          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                : _selectedFile == null
-                    ? _buildEmptyState()
-                    : Form(
+      backgroundColor: AppColors.background,
+      appBar: toolAppBar(context, 'Lock PDF'),
+      body: _isProcessing
+          ? const ToolProcessingView(message: 'Encrypting your PDF...')
+          : _selectedFile == null
+              ? _buildEmptyState()
+              : Form(
                   key: _formKey,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                    children: [
+                      SelectedFileCard(
+                        icon: Icons.lock_outline_rounded,
+                        color: AppColors.toolLock,
+                        name: _selectedFile!.path.split('/').last,
+                        onChange: _pickFile,
+                      ),
+                      const SizedBox(height: 16),
+                      ToolSectionCard(
+                        title: 'File name',
+                        child: TextFormField(
+                          controller: _nameController,
+                          decoration: toolInputDecoration(
+                            hint: 'Locked file name',
+                            icon: Icons.edit_document,
+                            suffixText: '.pdf',
                           ),
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Selected File',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blueGrey.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: const Icon(Icons.picture_as_pdf, color: Colors.blueGrey),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Text(
-                                      _selectedFile!.path.split('/').last,
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.refresh, color: Colors.blueAccent),
-                                    onPressed: _pickFile,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter a name';
+                            }
+                            return null;
+                          },
                         ),
-                        const SizedBox(height: 24),
-
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('File Details', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _nameController,
-                                decoration: InputDecoration(
-                                  labelText: 'File Name',
-                                  prefixIcon: const Icon(Icons.edit_document),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                  suffixText: '.pdf',
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Please enter a name';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Set Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Your PDF will be encrypted with AES-256 bit encryption.',
-                                style: TextStyle(fontSize: 13, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: const Icon(Icons.lock),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
+                      ),
+                      const SizedBox(height: 16),
+                      ToolSectionCard(
+                        title: 'Set password',
+                        subtitle: 'Your PDF will be encrypted with AES-256 bit encryption.',
+                        child: Column(
+                          children: [
+                            TextFormField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              decoration: toolInputDecoration(
+                                label: 'Password',
+                                icon: Icons.lock_rounded,
+                                suffixIcon: IconButton(
+                                  tooltip: _obscurePassword ? 'Show password' : 'Hide password',
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_rounded
+                                        : Icons.visibility_rounded,
+                                    size: 20,
+                                    color: AppColors.textSecondary,
                                   ),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                  },
                                 ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Please enter a password';
-                                  }
-                                  if (value.length < 4) {
-                                    return 'Password must be at least 4 characters';
-                                  }
-                                  return null;
-                                },
                               ),
-                              const SizedBox(height: 16),
-                              TextFormField(
-                                controller: _confirmPasswordController,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  labelText: 'Confirm Password',
-                                  prefixIcon: const Icon(Icons.lock_outline),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Please confirm your password';
-                                  }
-                                  if (value != _passwordController.text) {
-                                    return 'Passwords do not match';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueGrey,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              elevation: 2,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter a password';
+                                }
+                                if (value.length < 4) {
+                                  return 'Password must be at least 4 characters';
+                                }
+                                return null;
+                              },
                             ),
-                            onPressed: _lockPdf,
-                            child: const Text('Lock PDF', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _confirmPasswordController,
+                              obscureText: _obscurePassword,
+                              decoration: toolInputDecoration(
+                                label: 'Confirm password',
+                                icon: Icons.lock_outline_rounded,
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please confirm your password';
+                                }
+                                if (value != _passwordController.text) {
+                                  return 'Passwords do not match';
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
                 ),
+      bottomNavigationBar: ready
+          ? ToolBottomBar(
+              child: ToolPrimaryButton(
+                label: 'Lock PDF',
+                icon: Icons.lock_rounded,
+                onPressed: _lockPdf,
               ),
-          ),
-        ],
-      ),
+            )
+          : null,
     );
   }
 
   Widget _buildEmptyState() {
-    return Column(
-      children: [
-        Expanded(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.blueGrey.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.lock,
-                      color: Colors.blueGrey,
-                      size: 64,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Select PDF to Lock',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Choose a PDF file from your device storage to password protect it with AES-256 encryption.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    width: 200,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueGrey,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _pickFile,
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text(
-                        'Select PDF',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: SafeArea(
-            top: false,
-            child: const NativeAdWidget(),
-          ),
-        ),
-      ],
+    return ToolEmptyWithAd(
+      empty: ToolEmptyState(
+        icon: Icons.lock_outline_rounded,
+        color: AppColors.toolLock,
+        title: 'Select PDF to Lock',
+        message: 'Choose a PDF file from your device storage to password protect it with AES-256 encryption.',
+        buttonLabel: 'Select PDF',
+        buttonIcon: Icons.picture_as_pdf_rounded,
+        onPressed: _pickFile,
+      ),
+      ad: const NativeAdWidget(),
     );
   }
 }

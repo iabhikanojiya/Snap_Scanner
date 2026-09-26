@@ -6,9 +6,14 @@ import '../widgets/signature_pad.dart';
 import '../services/signature_service.dart';
 import '../../pdf/screens/success_screen.dart';
 import 'signature_pdf_screen.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/tool_ui.dart';
 
 class SignatureScreen extends StatefulWidget {
-  const SignatureScreen({super.key});
+  /// When set, "Add to PDF" signs this file instead of opening the picker.
+  final String? pdfPath;
+
+  const SignatureScreen({super.key, this.pdfPath});
 
   @override
   State<SignatureScreen> createState() => _SignatureScreenState();
@@ -59,6 +64,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
               icon: Icons.draw,
               iconColor: Colors.indigo,
               title: 'Signature Saved!',
+              shortcuts: const [SuccessShortcut.addSign, SuccessShortcut.scanPdf],
               fileIcon: Icons.draw,
               fileIconColor: Colors.indigo,
             ),
@@ -90,18 +96,26 @@ class _SignatureScreenState extends State<SignatureScreen> {
     }
 
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        allowMultiple: false,
-      );
+      final String pdfPath;
+      final String outputName;
+      final presetPath = widget.pdfPath;
+      if (presetPath != null) {
+        pdfPath = presetPath;
+        outputName = '${presetPath.split('/').last.replaceAll('.pdf', '')}_signed';
+      } else {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['pdf'],
+          allowMultiple: false,
+        );
 
-      if (result == null || result.files.isEmpty) return;
+        if (result == null || result.files.isEmpty) return;
 
-      final file = result.files.first;
-      if (file.path == null) throw Exception('Selected file has no accessible path');
-      final pdfPath = file.path!;
-      final outputName = '${file.name.replaceAll('.pdf', '')}_signed';
+        final file = result.files.first;
+        if (file.path == null) throw Exception('Selected file has no accessible path');
+        pdfPath = file.path!;
+        outputName = '${file.name.replaceAll('.pdf', '')}_signed';
+      }
 
       final padState = _padKey.currentState;
       if (padState == null) throw Exception('Signature pad no longer available');
@@ -141,151 +155,166 @@ class _SignatureScreenState extends State<SignatureScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text('Signature', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-      ),
+      backgroundColor: AppColors.background,
+      appBar: toolAppBar(context, 'Create Signature'),
       body: _isProcessing
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.blueAccent),
-                  SizedBox(height: 16),
-                  Text(
-                    'Processing, please wait...',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-                  ),
-                ],
-              ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Draw your signature below',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Use your finger or stylus to sign',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 16),
-
-                  SignaturePad(key: _padKey, strokeWidth: _strokeWidth, strokeColor: _strokeColor),
-
-                  const SizedBox(height: 16),
-
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+          ? const ToolProcessingView(message: 'Processing your signature...')
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              children: [
+                ToolSectionCard(
+                  title: 'Draw your signature',
+                  subtitle: 'Use your finger or stylus to sign',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Undo',
+                        onPressed: () => _padKey.currentState?.undo(),
+                        icon: const Icon(Icons.undo_rounded, color: AppColors.textSecondary),
+                      ),
+                      TextButton(
+                        onPressed: () => _padKey.currentState?.clear(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.brandRed,
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700),
                         ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            const Text('Stroke Width', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                            Expanded(
-                              child: Slider(
-                                value: _strokeWidth,
-                                min: 1.0,
-                                max: 8.0,
-                                divisions: 14,
-                                label: _strokeWidth.toStringAsFixed(1),
-                                onChanged: (v) => setState(() => _strokeWidth = v),
-                              ),
-                            ),
-                            Text(
-                              _strokeWidth.toStringAsFixed(1),
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                            ),
-                          ],
+                        child: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    children: [
+                      SignaturePad(key: _padKey, strokeWidth: _strokeWidth, strokeColor: _strokeColor),
+                      // "Sign here" hint; purely visual, never captured.
+                      const Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 30,
+                        child: IgnorePointer(
+                          child: Text(
+                            'Sign here',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 12, color: Color(0xFFB8BEC8)),
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text('Color', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                            const SizedBox(width: 16),
-                            ..._colorOptions.map((color) {
-                              final isSelected = _strokeColor == color;
-                              return GestureDetector(
-                                onTap: () => setState(() => _strokeColor = color),
-                                child: Container(
-                                  margin: const EdgeInsets.only(right: 8),
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    shape: BoxShape.circle,
-                                    border: isSelected
-                                        ? Border.all(color: Colors.blueAccent, width: 3)
-                                        : null,
-                                    boxShadow: isSelected
-                                        ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 6)]
-                                        : null,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ToolSectionCard(
+                  title: 'Pen',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Color',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 10,
+                        children: _colorOptions.map((color) {
+                          final isSelected = _strokeColor == color;
+                          return Semantics(
+                            selected: isSelected,
+                            button: true,
+                            label: 'Pen color',
+                            child: GestureDetector(
+                              onTap: () => setState(() => _strokeColor = color),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                width: 38,
+                                height: 38,
+                                padding: const EdgeInsets.all(3),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isSelected ? color : Colors.transparent,
+                                    width: 2,
                                   ),
                                 ),
-                              );
-                            }),
-                            const Spacer(),
-                            TextButton.icon(
-                              onPressed: () => _padKey.currentState?.clear(),
-                              icon: const Icon(Icons.refresh, size: 18),
-                              label: const Text('Clear'),
-                              style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                                  child: isSelected
+                                      ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                                      : null,
+                                ),
+                              ),
                             ),
-                          ],
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Text(
+                            'Thickness',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                          ),
+                          const Spacer(),
+                          // Live preview of the current pen.
+                          Container(
+                            width: 48,
+                            height: _strokeWidth,
+                            decoration: BoxDecoration(
+                              color: _strokeColor,
+                              borderRadius: BorderRadius.circular(_strokeWidth),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: AppColors.brandRed,
+                          thumbColor: AppColors.brandRed,
+                          inactiveTrackColor: AppColors.brandRed.withValues(alpha: 0.15),
+                          overlayColor: AppColors.brandRed.withValues(alpha: 0.1),
+                          valueIndicatorColor: AppColors.brandRed,
                         ),
-                      ],
+                        child: Slider(
+                          value: _strokeWidth,
+                          min: 1.0,
+                          max: 8.0,
+                          divisions: 14,
+                          label: _strokeWidth.toStringAsFixed(1),
+                          onChanged: (v) => setState(() => _strokeWidth = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+      bottomNavigationBar: _isProcessing
+          ? null
+          : ToolBottomBar(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: OutlinedButton.icon(
+                        onPressed: _saveAsImage,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.brandRed,
+                          side: const BorderSide(color: AppColors.brandRed, width: 1.5),
+                          shape: const StadiumBorder(),
+                          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                        ),
+                        icon: const Icon(Icons.save_alt_rounded, size: 20),
+                        label: const Text('Save'),
+                      ),
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        elevation: 2,
-                      ),
-                      onPressed: _saveAsImage,
-                      icon: const Icon(Icons.save_alt),
-                      label: const Text('Save as Image', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurpleAccent,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        elevation: 2,
-                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ToolPrimaryButton(
+                      label: 'Add to PDF',
+                      icon: Icons.picture_as_pdf_rounded,
                       onPressed: _addToPdf,
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text('Add to PDF', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],

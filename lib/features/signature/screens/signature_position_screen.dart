@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pdfx/pdfx.dart' as px;
 import '../services/signature_service.dart';
 import '../../pdf/screens/success_screen.dart';
+import '../../../core/theme/app_colors.dart';
 
 class SignaturePositionScreen extends StatefulWidget {
   final ui.Image signatureImage;
@@ -96,6 +97,11 @@ class _SignaturePositionScreenState extends State<SignaturePositionScreen> {
             builder: (context) => SuccessScreen(
               pdfFile: file,
               title: 'PDF Signed Successfully!',
+              shortcuts: const [
+                SuccessShortcut.lockPdf,
+                SuccessShortcut.splitPdf,
+                SuccessShortcut.compressPdf,
+              ],
             ),
           ),
         );
@@ -117,8 +123,10 @@ class _SignaturePositionScreenState extends State<SignaturePositionScreen> {
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: const Text('Position Signature', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: AppColors.brandRed,
+        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(color: Colors.white),
         elevation: 0,
       ),
       body: _isProcessing

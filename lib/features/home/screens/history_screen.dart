@@ -1,18 +1,16 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../../../core/models/pdf_file_model.dart';
-import '../../../core/services/analytics_service.dart';
 import '../../../core/services/database_service.dart';
-import '../../../core/services/storage_service.dart';
 import '../../../core/widgets/banner_ad_widget.dart';
+import '../../documents/pdf_file_actions.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  /// Reserve space for the floating bottom nav (false when pushed as a page).
+  final bool reserveBottomNavSpace;
+
+  const HistoryScreen({super.key, this.reserveBottomNavSpace = true});
 
   @override
   State<HistoryScreen> createState() => HistoryScreenState();
@@ -24,17 +22,7 @@ class HistoryScreenState extends State<HistoryScreen> {
   String _selectedFilter = 'all';
   final _searchController = TextEditingController();
 
-  static const _filterOptions = [
-    ('All', 'all'),
-    ('Scan PDF', 'scan_pdf'),
-    ('Image to PDF', 'image_to_pdf'),
-    ('Merge PDF', 'merge_pdf'),
-    ('Split PDF', 'split_pdf'),
-    ('Compress PDF', 'compress_pdf'),
-    ('Lock PDF', 'lock_pdf'),
-    ('Signature', 'signature_pdf'),
-    ('Resize Image', 'resize_image'),
-  ];
+  static const _filterOptions = PdfFileActions.filterOptions;
 
   List<PdfFileModel> get _filteredFiles {
     var files = _recentFiles;
@@ -76,170 +64,8 @@ class HistoryScreenState extends State<HistoryScreen> {
     _loadRecentFiles();
   }
 
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  String _formatToolType(String toolType) {
-    switch (toolType) {
-      case 'scan_pdf':
-        return 'Created with Scan PDF';
-      case 'image_to_pdf':
-        return 'Created with Image to PDF';
-      case 'merge_pdf':
-        return 'Created with Merge PDF';
-      case 'split_pdf':
-        return 'Created with Split PDF';
-      case 'compress_pdf':
-        return 'Created with Compress PDF';
-      case 'lock_pdf':
-        return 'Created with Lock PDF';
-      case 'signature_pdf':
-        return 'Created with Signature';
-      case 'resize_image':
-        return 'Created with Resize Image';
-      default:
-        return 'Created with SnapScanner';
-    }
-  }
-
   void _showFileActions(PdfFileModel file) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.open_in_new),
-              title: const Text('Open'),
-              onTap: () async {
-                Navigator.pop(context);
-                await OpenFilex.open(file.path);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share),
-              title: const Text('Share'),
-              onTap: () async {
-                Navigator.pop(context);
-                AnalyticsService.instance.logPdfShared();
-                await Share.shareXFiles([XFile(file.path)]);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Download'),
-              onTap: () async {
-                Navigator.pop(context);
-                try {
-                  final sourceFile = File(file.path);
-                  final bytes = await sourceFile.readAsBytes();
-                  final outputPath = await FilePicker.saveFile(
-                    dialogTitle: 'Download PDF',
-                    fileName: file.name,
-                    type: FileType.custom,
-                    allowedExtensions: ['pdf'],
-                    bytes: bytes,
-                  );
-                  if (outputPath != null) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('File downloaded successfully!')),
-                      );
-                    }
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error downloading file: $e')),
-                    );
-                  }
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Rename'),
-              onTap: () async {
-                Navigator.pop(context);
-                _showRenameDialog(file);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete', style: TextStyle(color: Colors.red)),
-              onTap: () async {
-                Navigator.pop(context);
-                _showDeleteConfirmation(file);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showRenameDialog(PdfFileModel file) {
-    final controller = TextEditingController(text: file.name.replaceAll('.pdf', ''));
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename File'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(suffixText: '.pdf'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              final newName = controller.text.trim();
-              if (newName.isNotEmpty) {
-                final newPath = await StorageService.renameFile(file.path, newName);
-                await DatabaseService.updateFileMetadata(file.id, newName, newPath);
-                if (mounted) {
-                  Navigator.pop(context);
-                  _loadRecentFiles();
-                }
-              }
-            },
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteConfirmation(PdfFileModel file) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete File'),
-        content: Text('Are you sure you want to delete "${file.name}"?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              await StorageService.deleteFile(file.path);
-              await DatabaseService.deleteFile(file.id);
-              AnalyticsService.instance.logPdfDeleted();
-              if (mounted) {
-                Navigator.pop(context);
-                _loadRecentFiles();
-              }
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
+    PdfFileActions.showFileActions(context, file, onChanged: _loadRecentFiles);
   }
 
   double _bottomNavClearance(BuildContext context) {
@@ -373,7 +199,9 @@ class HistoryScreenState extends State<HistoryScreen> {
             child: BannerAdWidget(),
           ),
           SizedBox(
-            height: _bottomNavClearance(context),
+            height: widget.reserveBottomNavSpace
+                ? _bottomNavClearance(context)
+                : MediaQuery.paddingOf(context).bottom + 8,
           ),
         ],
       ),
@@ -515,12 +343,12 @@ class HistoryScreenState extends State<HistoryScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            _formatToolType(file.toolType),
+                            PdfFileActions.formatToolType(file.toolType),
                             style: TextStyle(color: Colors.blueAccent.shade400, fontSize: 12, fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${_formatSize(file.size)} • ${DateFormat('MMM dd, yyyy').format(file.createdAt)}',
+                            '${PdfFileActions.formatSize(file.size)} • ${DateFormat('MMM dd, yyyy').format(file.createdAt)}',
                             style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                           ),
                         ],

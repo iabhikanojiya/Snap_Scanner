@@ -1,30 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 
-import '../../../core/utils/file_utils.dart';
-import '../../../core/utils/image_utils.dart';
-import '../../../core/models/scanned_page.dart';
-import '../../../core/services/analytics_service.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/banner_ad_widget.dart';
+import '../../../core/widgets/blue_header.dart';
+import '../../../core/widgets/glass_bottom_nav.dart';
 import '../../../core/widgets/native_ad_widget.dart';
-import '../../../providers/scan_provider.dart';
-import '../widgets/home_action_card.dart';
-
-import 'package:snap_scanner/features/editor/screens/batch_crop_screen.dart';
-import 'package:snap_scanner/features/scanner/screens/scanner_screen.dart';
-import 'package:snap_scanner/features/scanner/services/mlkit_document_scanner_service.dart';
-import 'package:snap_scanner/features/pdf/screens/pdf_settings_screen.dart';
-import 'package:snap_scanner/features/merge/screens/pdf_merge_screen.dart';
-import 'package:snap_scanner/features/split/screens/pdf_split_screen.dart';
-import 'package:snap_scanner/features/compress/screens/pdf_compress_screen.dart';
-import 'package:snap_scanner/features/lock/screens/pdf_lock_screen.dart';
-import 'package:snap_scanner/features/signature/screens/signature_screen.dart';
-import 'package:snap_scanner/features/signature/screens/saved_signatures_screen.dart';
-import 'package:snap_scanner/features/signature/services/signature_service.dart';
-import 'package:snap_scanner/features/resize_image/screens/resize_image_screen.dart';
+import '../tool_actions.dart';
+import '../widgets/tool_card.dart';
 
 class ToolsScreen extends StatefulWidget {
   const ToolsScreen({super.key});
@@ -34,490 +16,286 @@ class ToolsScreen extends StatefulWidget {
 }
 
 class _ToolsScreenState extends State<ToolsScreen> {
-  Future<void> _openScanner(BuildContext context) async {
-    // ML Kit Document Scanner is Android-only. Keep iOS behaviour unchanged.
-    if (!Platform.isAndroid) {
-      AnalyticsService.instance.logScanStarted();
-      if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const ScannerScreen()),
-      );
-      return;
-    }
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
+  bool _searchOpen = false;
 
-    AnalyticsService.instance.logScanStarted();
-    final provider = Provider.of<ScanProvider>(context, listen: false);
-    provider.clearPages();
-    provider.setToolType('scan_pdf');
-
-    List<String>? imagePaths;
-    try {
-      imagePaths = await MlkitDocumentScannerService.scanDocuments();
-    } catch (e) {
-      debugPrint('[ToolsScreen] ML Kit scanner failed: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Scanner failed to start. Please try again.')),
-      );
-      return;
-    }
-
-    // Cancelled – do nothing, stay on Tools (no PDF, no error).
-    if (imagePaths == null || imagePaths.isEmpty) {
-      debugPrint('[ToolsScreen] ML Kit cancelled or no pages');
-      return;
-    }
-
-    // Convert scanned image paths into ScannedPage models for the existing
-    // PdfSettings → PdfService → Success flow.
-    for (final path in imagePaths) {
-      try {
-        final src = File(path);
-        if (!await src.exists()) {
-          debugPrint('[ToolsScreen] Missing scanned file: $path');
-          continue;
-        }
-        // Copy to app's permanent processed-images dir so the file persists
-        // for the downstream PDF generation (ML Kit files may be temporary).
-        final permFile = await FileUtils.createPermanentFile(extension: 'jpg');
-        await src.copy(permFile.path);
-        provider.addPage(ScannedPage(
-          id: const Uuid().v4(),
-          originalPath: permFile.path,
-          processedFile: permFile,
-        ));
-      } catch (e) {
-        debugPrint('[ToolsScreen] Failed to copy scanned file $path: $e');
-      }
-    }
-
-    if (!mounted) return;
-    if (provider.pages.isEmpty) {
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const PdfSettingsScreen()),
-    );
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
   }
 
-  Future<void> _pickImages(BuildContext context) async {
-    AnalyticsService.instance.logImageToPdfStarted();
-    final ImagePicker picker = ImagePicker();
-    final provider = Provider.of<ScanProvider>(context, listen: false);
-    provider.clearPages();
-    provider.setToolType('image_to_pdf');
+  String get _query => _searchController.text.trim().toLowerCase();
 
-    final List<XFile> images = await picker.pickMultiImage();
-    if (images.isNotEmpty) {
-      if (mounted) _showLoading();
-
-      final optimizedFiles = await Future.wait(
-        images.map((img) => ImageUtils.optimizeImage(File(img.path))),
-      );
-
-      for (int i = 0; i < images.length; i++) {
-        provider.addPage(ScannedPage(
-          id: const Uuid().v4(),
-          originalPath: images[i].path,
-          processedFile: optimizedFiles[i],
-        ));
-      }
-      if (mounted) {
-        Navigator.pop(context);
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const BatchCropScreen()),
-        );
-      }
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) _searchController.clear();
+    });
+    if (_searchOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocus.requestFocus();
+      });
+    } else {
+      _searchFocus.unfocus();
     }
   }
 
-  void _showLoading() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (c) => const Center(child: CircularProgressIndicator()),
-    );
+  /// Cards whose title or description contains every word of the query.
+  List<ToolCard> _filter(List<ToolCard> cards) {
+    final words = _query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return cards;
+    return cards.where((card) {
+      final text = '${card.title} ${card.description}'.toLowerCase();
+      return words.every(text.contains);
+    }).toList();
   }
 
-  void _showSignatureOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Add Signature',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Choose an option to add your signature',
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                ),
-                const SizedBox(height: 24),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.draw, color: Colors.indigo, size: 28),
-                  ),
-                  title: const Text('Create New Signature',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                  subtitle: Text('Draw a new signature',
-                      style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-                  trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SignatureScreen()));
+  Widget _buildSearchField() {
+    return SizedBox(
+      height: 44,
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocus,
+        onChanged: (_) => setState(() {}),
+        textInputAction: TextInputAction.search,
+        style: const TextStyle(fontSize: 15),
+        decoration: InputDecoration(
+          hintText: 'Search tools',
+          prefixIcon: const Icon(Icons.search_rounded, size: 21),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 19),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {});
                   },
-                ),
-                const Divider(indent: 24, endIndent: 24),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.folder_open, color: Colors.amber, size: 28),
-                  ),
-                  title: const Text('Use Saved Signature',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                  subtitle: Text('Select from saved signatures',
-                      style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-                  trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    final hasSaved = await SignatureService.hasSavedSignatures();
-                    if (!hasSaved) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('No saved signatures found. Create one first.')),
-                        );
-                      }
-                      return;
-                    }
-                    if (context.mounted) {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SavedSignaturesScreen()));
-                    }
-                  },
-                ),
-              ],
-            ),
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: EdgeInsets.zero,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Widget _sectionHeader(String label, {double topPadding = 28}) {
+  /// Banner stays mounted while searching (just hidden), so a loaded ad
+  /// isn't thrown away and reloaded afterwards. Always built here so every
+  /// placement produces the same keyed subtree.
+  Widget _buildBanner({required bool visible}) {
+    return Visibility(
+      key: const ValueKey('tools_banner'),
+      visible: visible,
+      maintainState: true,
+      child: const Padding(
+        padding: EdgeInsets.only(top: 16),
+        child: BannerAdWidget(compact: true),
+      ),
+    );
+  }
+
+  Widget _buildNoResults() {
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, topPadding, 24, 14),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(32, 56, 32, 24),
+      child: Column(
         children: [
           Container(
-            width: 3,
-            height: 16,
-            decoration: BoxDecoration(
-              color: Colors.blueAccent.shade400,
-              borderRadius: BorderRadius.circular(2),
-            ),
+            padding: const EdgeInsets.all(22),
+            decoration: const BoxDecoration(color: Color(0xFFF1F2F4), shape: BoxShape.circle),
+            child: const Icon(Icons.search_off_rounded, size: 44, color: Color(0xFFA0A6B1)),
           ),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade600,
-              letterSpacing: 1,
-            ),
+          const SizedBox(height: 18),
+          const Text(
+            'No tools found',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Try a different word, like "sign" or "merge"',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
           ),
         ],
       ),
     );
   }
-
-  Widget _toolsRow(List<Widget> cards) {
+  Widget _sectionHeader(String label, {double topPadding = 24}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        children: cards.map((c) => Expanded(child: Padding(
-          padding: cards.indexOf(c) == 0
-              ? const EdgeInsets.only(right: 8)
-              : const EdgeInsets.only(left: 8),
-          child: c,
-        ))).toList(),
+      padding: EdgeInsets.fromLTRB(20, topPadding, 20, 12),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textSecondary,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _toolGrid(List<ToolCard> cards) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 600 ? 4 : 2;
+          const spacing = 12.0;
+          final rows = <Widget>[];
+          for (var i = 0; i < cards.length; i += columns) {
+            final rowCards = cards.skip(i).take(columns).toList();
+            rows.add(Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : spacing),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var j = 0; j < columns; j++) ...[
+                      if (j > 0) const SizedBox(width: spacing),
+                      Expanded(
+                        child: j < rowCards.length
+                            ? rowCards[j]
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ));
+          }
+          return Column(children: rows);
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final create = _filter([
+      ToolCard(
+        title: 'Scan PDF',
+        description: 'Scan documents with your camera',
+        icon: Icons.document_scanner_outlined,
+        color: AppColors.toolScan,
+        onTap: () => ToolActions.openScanner(context),
+      ),
+      ToolCard(
+        title: 'Image to PDF',
+        description: 'Convert images to PDF documents',
+        icon: Icons.image_outlined,
+        color: AppColors.toolImageToPdf,
+        onTap: () => ToolActions.pickImages(context),
+      ),
+    ]);
+    final documentTools = _filter([
+      ToolCard(
+        title: 'Merge PDF',
+        description: 'Combine multiple PDFs',
+        icon: Icons.merge_type_rounded,
+        color: AppColors.toolMerge,
+        onTap: () => ToolActions.openMerge(context),
+      ),
+      ToolCard(
+        title: 'Split PDF',
+        description: 'Extract pages from a PDF',
+        icon: Icons.call_split_rounded,
+        color: AppColors.toolSplit,
+        onTap: () => ToolActions.openSplit(context),
+      ),
+      ToolCard(
+        title: 'Compress PDF',
+        description: 'Reduce PDF file size',
+        icon: Icons.compress_rounded,
+        color: AppColors.toolCompress,
+        onTap: () => ToolActions.openCompress(context),
+      ),
+      ToolCard(
+        title: 'Lock PDF',
+        description: 'Protect with a password',
+        icon: Icons.lock_outline_rounded,
+        color: AppColors.toolLock,
+        onTap: () => ToolActions.openLock(context),
+      ),
+    ]);
+    final annotate = _filter([
+      ToolCard(
+        title: 'Signature',
+        description: 'Sign your PDF documents',
+        icon: Icons.draw_outlined,
+        color: AppColors.toolSignature,
+        onTap: () => ToolActions.openSignature(context),
+      ),
+      ToolCard(
+        title: 'Resize Image',
+        description: 'Change image dimensions',
+        icon: Icons.photo_size_select_large_rounded,
+        color: AppColors.toolResize,
+        onTap: () => ToolActions.openResizeImage(context),
+      ),
+    ]);
+
+    final searching = _query.isNotEmpty;
+    final sections = <(String, List<ToolCard>)>[
+      ('CREATE', create),
+      ('DOCUMENT TOOLS', documentTools),
+      ('ANNOTATE', annotate),
+    ].where((section) => section.$2.isNotEmpty).toList();
+
     return Container(
-      color: const Color(0xFFF8F9FA),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: 120),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-
-
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+      color: AppColors.background,
+      child: Column(
+        children: [
+          BlueHeader(
+            title: 'Tools',
+            subtitle: _searchOpen ? null : 'All your PDF utilities in one place',
+            actions: [
+              HeaderIconButton(
+                icon: _searchOpen ? Icons.close_rounded : Icons.search_rounded,
+                tooltip: _searchOpen ? 'Close search' : 'Search',
+                active: _searchOpen,
+                onPressed: _toggleSearch,
+              ),
+            ],
+            bottom: _searchOpen ? _buildSearchField() : null,
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.only(bottom: GlassBottomNav.clearance(context)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Tools',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).textTheme.titleLarge?.color,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'All your PDF utilities in one place',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
+                  if (sections.isEmpty) ...[
+                    _buildNoResults(),
+                    _buildBanner(visible: false),
+                  ],
+                  for (var i = 0; i < sections.length; i++) ...[
+                    _sectionHeader(sections[i].$1, topPadding: i == 0 ? 20 : 24),
+                    _toolGrid(sections[i].$2),
+                    if (i == 0) _buildBanner(visible: !searching),
+                  ],
+                  Visibility(
+                    key: const ValueKey('tools_native_ad'),
+                    visible: !searching,
+                    maintainState: true,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: NativeAdWidget(),
                     ),
                   ),
                 ],
               ),
             ),
-
-            // Scan PDF Banner
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFEF4444).withOpacity(0.35),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: () => _openScanner(context),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Icon(Icons.document_scanner, color: Colors.white, size: 36),
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Scan PDF',
-                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Scan documents using your camera',
-                                  style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.85)),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.arrow_forward, color: Colors.white, size: 20),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // --- CREATE ---
-            _sectionHeader('CREATE'),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: () => _pickImages(context),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(Icons.image_rounded, color: Colors.green, size: 30),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Image to PDF',
-                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Convert images to PDF documents',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(Icons.chevron_right, color: Colors.grey.shade400),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              child: const BannerAdWidget(),
-            ),
-            // --- DOCUMENT TOOLS ---
-            _sectionHeader('DOCUMENT TOOLS', topPadding: 12),
-
-            _toolsRow([
-              HomeActionCard(
-                title: 'Merge PDF',
-                icon: Icons.merge_type,
-                color: Colors.deepPurpleAccent,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PdfMergeScreen()));
-                },
-              ),
-              HomeActionCard(
-                title: 'Split PDF',
-                icon: Icons.call_split,
-                color: Colors.teal,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PdfSplitScreen()));
-                },
-              ),
-            ]),
-            const SizedBox(height: 12),
-            _toolsRow([
-              HomeActionCard(
-                title: 'Compress PDF',
-                icon: Icons.compress,
-                color: Colors.orange,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PdfCompressScreen()));
-                },
-              ),
-              HomeActionCard(
-                title: 'Lock PDF',
-                icon: Icons.lock,
-                color: Colors.blueGrey,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PdfLockScreen()));
-                },
-              ),
-            ]),
-
-            // --- ANNOTATE ---
-            _sectionHeader('ANNOTATE'),
-
-            _toolsRow([
-              HomeActionCard(
-                title: 'Signature',
-                icon: Icons.draw,
-                color: Colors.indigo,
-                onTap: () async {
-                  final hasSaved = await SignatureService.hasSavedSignatures();
-                  if (!context.mounted) return;
-                  if (!hasSaved) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SignatureScreen()));
-                  } else {
-                    _showSignatureOptions(context);
-                  }
-                },
-              ),
-              HomeActionCard(
-                title: 'Resize Image',
-                icon: Icons.photo_size_select_large,
-                color: Colors.pink,
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ResizeImageScreen()));
-                },
-              ),
-            ]),
-
-            const SizedBox(height: 16),
-            const NativeAdWidget(),
-            const SizedBox(height: 40),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

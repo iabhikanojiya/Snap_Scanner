@@ -1,34 +1,124 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:snap_scanner/core/utils/image_utils.dart';
 import 'package:snap_scanner/providers/scan_provider.dart';
 import 'package:snap_scanner/features/review/screens/review_screen.dart';
 import 'package:snap_scanner/core/widgets/banner_ad_widget.dart';
+import 'package:snap_scanner/core/models/scanned_page.dart';
+import 'package:snap_scanner/core/theme/app_colors.dart';
+import '../widgets/page_counter.dart';
 
 class BatchFilterScreen extends StatefulWidget {
-  const BatchFilterScreen({super.key});
+  /// Page to show first, so it matches the page the user was on in Crop.
+  final int initialIndex;
+
+  const BatchFilterScreen({super.key, this.initialIndex = 0});
 
   @override
   State<BatchFilterScreen> createState() => _BatchFilterScreenState();
 }
 
 class _BatchFilterScreenState extends State<BatchFilterScreen> {
+  /// Picker order: Enhance first (applied by default), then Original.
+  static const List<(FilterType, String)> _filters = [
+    (FilterType.enhance, 'Enhance'),
+    (FilterType.original, 'Original'),
+    (FilterType.magicColor, 'Magic Color'),
+    (FilterType.sharpen, 'Sharpen'),
+    (FilterType.bright, 'Bright'),
+    (FilterType.grayscale, 'Grayscale'),
+    (FilterType.bw, 'B&W'),
+    (FilterType.sepia, 'Sepia'),
+  ];
+  static const FilterType _defaultFilter = FilterType.enhance;
+
   late PageController _pageController;
   int _currentIndex = 0;
   bool _isProcessing = false;
-  FilterType _currentFilter = FilterType.original;
+
+  /// Unfiltered (cropped) image per page id, so filters never stack and
+  /// "Original" returns to the cropped image.
+  final Map<String, File> _baseFiles = {};
+
+  /// Filter currently applied to each page id.
+  final Map<String, FilterType> _pageFilters = {};
+
+  /// Filter thumbnails per page id.
+  final Map<String, Map<FilterType, Uint8List>> _previews = {};
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    _currentIndex = provider.pages.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, provider.pages.length - 1);
+    _pageController = PageController(initialPage: _currentIndex);
+    for (final page in provider.pages) {
+      _baseFiles[page.id] = page.displayFile;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPreviews(_currentIndex);
+      _applyDefaultFilter();
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  FilterType get _currentFilter {
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    if (provider.pages.isEmpty || _currentIndex >= provider.pages.length) {
+      return _defaultFilter;
+    }
+    return _pageFilters[provider.pages[_currentIndex].id] ?? FilterType.original;
+  }
+
+  File _baseFor(ScannedPage page) =>
+      _baseFiles.putIfAbsent(page.id, () => page.displayFile);
+
+  Future<void> _applyToPage(ScannedPage page, FilterType type, ScanProvider provider) async {
+    final base = _baseFor(page);
+    final file = type == FilterType.original ? base : await ImageUtils.applyFilter(base, type);
+    provider.updatePageProcessedFile(page.id, file);
+    _pageFilters[page.id] = type;
+  }
+
+  Future<void> _loadPreviews(int index) async {
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    if (index >= provider.pages.length) return;
+    final page = provider.pages[index];
+    if (_previews.containsKey(page.id)) return;
+    try {
+      final previews = await ImageUtils.buildFilterPreviews(
+        _baseFor(page),
+        [for (final f in _filters) f.$1],
+      );
+      if (mounted) setState(() => _previews[page.id] = previews);
+    } catch (e) {
+      debugPrint('Filter previews failed: $e');
+    }
+  }
+
+  /// Applies Enhance to every page when the screen opens.
+  Future<void> _applyDefaultFilter() async {
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    if (provider.pages.isEmpty || _isProcessing) return;
+    setState(() => _isProcessing = true);
+    try {
+      for (final page in List.of(provider.pages)) {
+        await _applyToPage(page, _defaultFilter, provider);
+      }
+    } catch (e) {
+      debugPrint('Default filter failed: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
   }
 
   Future<void> _applyFilterToCurrent(FilterType type) async {
@@ -38,18 +128,11 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
     if (_isProcessing) return;
     setState(() {
       _isProcessing = true;
-      _currentFilter = type;
     });
 
     try {
       final page = provider.pages[_currentIndex];
-
-      if (type == FilterType.original) {
-        provider.updatePageProcessedFile(page.id, File(page.originalPath));
-      } else {
-        final newFile = await ImageUtils.applyFilter(page.displayFile, type);
-        provider.updatePageProcessedFile(page.id, newFile);
-      }
+      await _applyToPage(page, type, provider);
     } catch (e) {
       debugPrint('Filter failed: $e');
       if (mounted) {
@@ -67,18 +150,14 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
     if (provider.pages.isEmpty) return;
 
     if (_isProcessing) return;
+    final type = _currentFilter;
     setState(() {
       _isProcessing = true;
     });
 
     try {
-      for (var page in provider.pages) {
-        if (_currentFilter == FilterType.original) {
-          provider.updatePageProcessedFile(page.id, File(page.originalPath));
-        } else {
-          final newFile = await ImageUtils.applyFilter(page.displayFile, _currentFilter);
-          provider.updatePageProcessedFile(page.id, newFile);
-        }
+      for (var page in List.of(provider.pages)) {
+        await _applyToPage(page, type, provider);
       }
 
       if (mounted) {
@@ -105,9 +184,23 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
     );
   }
 
+  /// Going back to crop: drop filters so re-entering starts from the
+  /// unfiltered image instead of filtering an already-filtered one.
+  void _restoreBaseFiles() {
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    for (final page in provider.pages) {
+      final base = _baseFiles[page.id];
+      if (base != null) provider.updatePageProcessedFile(page.id, base);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<ScanProvider>(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _restoreBaseFiles();
+      },
+      child: Consumer<ScanProvider>(
       builder: (context, provider, child) {
         if (provider.pages.isEmpty) {
           return const Scaffold(
@@ -125,9 +218,11 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
             foregroundColor: Colors.white,
             leading: BackButton(
               color: Colors.white,
-              onPressed: () => Navigator.pop(context),
+              // Return the current page so Crop reopens on the same page.
+              onPressed: () => Navigator.pop(context, _currentIndex),
             ),
-            title: const Text('Filters'),
+            title: PageCounter(current: _currentIndex + 1, total: totalPages),
+            centerTitle: true,
             actions: [
               TextButton(
                 onPressed: _isProcessing ? null : _onDone,
@@ -137,13 +232,6 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
           ),
           body: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text(
-                  '${_currentIndex + 1} / $totalPages',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ),
               Expanded(
                 child: Stack(
                   alignment: Alignment.center,
@@ -155,6 +243,7 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
                         setState(() {
                           _currentIndex = index;
                         });
+                        _loadPreviews(index);
                       },
                       itemBuilder: (context, index) {
                         final page = provider.pages[index];
@@ -174,7 +263,7 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
               ),
               Container(
                 color: Colors.black87,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
                 child: Column(
                   children: [
                     Row(
@@ -191,37 +280,27 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     SizedBox(
-                      height: 50,
-                      child: ListView(
+                      height: 104,
+                      child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        children: [
-                          _FilterChip(
-                            label: 'Original',
-                            isSelected: _currentFilter == FilterType.original,
-                            onTap: () => _applyFilterToCurrent(FilterType.original),
-                          ),
-                          _FilterChip(
-                            label: 'B&W',
-                            isSelected: _currentFilter == FilterType.bw,
-                            onTap: () => _applyFilterToCurrent(FilterType.bw),
-                          ),
-                          _FilterChip(
-                            label: 'Grayscale',
-                            isSelected: _currentFilter == FilterType.grayscale,
-                            onTap: () => _applyFilterToCurrent(FilterType.grayscale),
-                          ),
-                          _FilterChip(
-                            label: 'Enhance',
-                            isSelected: _currentFilter == FilterType.enhance,
-                            onTap: () => _applyFilterToCurrent(FilterType.enhance),
-                          ),
-                        ],
+                        itemCount: _filters.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (context, i) {
+                          final (type, label) = _filters[i];
+                          final pageId = provider.pages[_currentIndex].id;
+                          return _FilterPreview(
+                            label: label,
+                            preview: _previews[pageId]?[type],
+                            isSelected: _currentFilter == type,
+                            onTap: _isProcessing ? null : () => _applyFilterToCurrent(type),
+                          );
+                        },
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -229,40 +308,79 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
                 padding: const EdgeInsets.only(top: 8),
                 child: SafeArea(
                   top: false,
-                  child: const BannerAdWidget(),
+                  child: const BannerAdWidget(compact: true),
                 ),
               ),
             ],
           ),
         );
       },
+      ),
     );
   }
 }
 
-class _FilterChip extends StatelessWidget {
+class _FilterPreview extends StatelessWidget {
   final String label;
+  final Uint8List? preview;
   final bool isSelected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  const _FilterChip({required this.label, required this.isSelected, required this.onTap});
+  const _FilterPreview({
+    required this.label,
+    required this.preview,
+    required this.isSelected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blueAccent : Colors.white24,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: isSelected ? Colors.blueAccent : Colors.white54),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      child: SizedBox(
+        width: 66,
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 66,
+              height: 78,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSelected ? AppColors.brandRed : Colors.white24,
+                  width: isSelected ? 2.5 : 1,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: preview != null
+                    ? Image.memory(preview!, fit: BoxFit.cover, gaplessPlayback: true)
+                    : const ColoredBox(
+                        color: Colors.white10,
+                        child: Center(
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white70,
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );

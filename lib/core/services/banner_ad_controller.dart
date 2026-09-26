@@ -11,6 +11,10 @@ class BannerAdController extends ChangeNotifier {
   static const Duration _loadTimeout = Duration(seconds: 9);
 
   final String adUnitId;
+
+  /// When true, always load a standard 320x50 banner instead of the
+  /// (taller) large anchored adaptive size.
+  final bool compact;
   final BannerAdService _service = BannerAdService.instance;
 
   BannerAd? _bannerAd;
@@ -28,7 +32,7 @@ class BannerAdController extends ChangeNotifier {
   Timer? _loadTimeoutTimer;
   DateTime? _requestStartTime;
 
-  BannerAdController({required this.adUnitId});
+  BannerAdController({required this.adUnitId, this.compact = false});
 
   bool get isLoaded => _isLoaded;
   bool get isLoading => _isLoading;
@@ -81,6 +85,7 @@ class BannerAdController extends ChangeNotifier {
   }
 
   Future<void> _loadAdaptiveSize(double screenWidth) async {
+    if (compact) return;
     if (_lastScreenWidth == screenWidth && _adaptiveSize != null) return;
     _lastScreenWidth = screenWidth;
     final size = await _service.getAdaptiveAdSize(screenWidth);

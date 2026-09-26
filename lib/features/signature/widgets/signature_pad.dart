@@ -28,6 +28,12 @@ class SignaturePadState extends State<SignaturePad> {
     });
   }
 
+  /// Removes the most recent stroke.
+  void undo() {
+    if (_strokes.isEmpty) return;
+    setState(() => _strokes.removeLast());
+  }
+
   bool get hasContent => _strokes.isNotEmpty;
 
   List<Map<String, dynamic>> getStrokeData() {

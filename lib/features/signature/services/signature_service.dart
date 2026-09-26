@@ -17,11 +17,15 @@ class SignaturePlacement {
   final double y;
   final double width;
 
+  /// Clockwise rotation in degrees around the signature's centre.
+  final double rotation;
+
   SignaturePlacement({
     required this.pageIndex,
     required this.x,
     required this.y,
     this.width = 200,
+    this.rotation = 0,
   });
 
   Map<String, dynamic> toMap() => {
@@ -29,6 +33,7 @@ class SignaturePlacement {
     'x': x,
     'y': y,
     'width': width,
+    'rotation': rotation,
   };
 }
 
@@ -110,14 +115,19 @@ class SignatureService {
       final pageWidth = template.size.width;
       final pageHeight = template.size.height;
       final sigHeight = sigWidth / aspectRatio;
+      final rotation = (placement['rotation'] as num?)?.toDouble() ?? 0;
 
-      final x = posX * pageWidth - sigWidth / 2;
-      final y = posY * pageHeight - sigHeight / 2;
-
-      page.graphics.drawImage(
+      // Draw around the centre so rotation (clockwise, like the preview)
+      // pivots on the middle of the signature.
+      final graphics = page.graphics;
+      final state = graphics.save();
+      graphics.translateTransform(posX * pageWidth, posY * pageHeight);
+      if (rotation != 0) graphics.rotateTransform(rotation);
+      graphics.drawImage(
         signature,
-        Rect.fromLTWH(x, y, sigWidth, sigHeight),
+        Rect.fromLTWH(-sigWidth / 2, -sigHeight / 2, sigWidth, sigHeight),
       );
+      graphics.restore(state);
     }
 
     final result = document.saveSync();
@@ -222,9 +232,16 @@ class SignatureService {
       final pageWidth = template.size.width;
       final pageHeight = template.size.height;
       final sigHeight = sigWidth * (strokeH / strokeW);
+      final rotation = (placement['rotation'] as num?)?.toDouble() ?? 0;
 
-      final originX = posX * pageWidth - sigWidth / 2;
-      final originY = posY * pageHeight - sigHeight / 2;
+      // Strokes are drawn relative to the signature's centre so rotation
+      // pivots on it (clockwise, like the preview).
+      final graphics = page.graphics;
+      final state = graphics.save();
+      graphics.translateTransform(posX * pageWidth, posY * pageHeight);
+      if (rotation != 0) graphics.rotateTransform(rotation);
+      final originX = -sigWidth / 2;
+      final originY = -sigHeight / 2;
 
       for (final stroke in strokeData) {
         final points = List<Map<String, dynamic>>.from(stroke['points']);
@@ -252,7 +269,7 @@ class SignatureService {
           prevY = curY;
         }
 
-        page.graphics.drawPath(
+        graphics.drawPath(
           pdfPath,
           pen: PdfPen(PdfColor(r, g, b),
             width: scaledWidth,
@@ -261,6 +278,7 @@ class SignatureService {
           ),
         );
       }
+      graphics.restore(state);
     }
 
     final result = document.saveSync();
