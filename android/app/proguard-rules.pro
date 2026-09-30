@@ -3,12 +3,13 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
--keep class com.google.firebase.** { *; }
--keep class com.google.android.gms.** { *; }
+# Firebase and Google Play services (Ads, ML Kit) ship their own R8 rules in
+# their AARs; blanket -keep rules here stopped R8 obfuscating ~11k classes.
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
-# Crashlytics
+# Crashlytics: readable stack traces (the mapping file is uploaded by the
+# Crashlytics Gradle plugin and bundled into the AAB for Play).
 -keepattributes *Annotation*
 -keepattributes SourceFile,LineNumberTable
--keep class com.google.firebase.crashlytics.** { *; }
+-keep public class * extends java.lang.Exception

@@ -15,6 +15,7 @@ import '../../lock/screens/pdf_lock_screen.dart';
 import '../../pdf/screens/success_screen.dart';
 import '../services/pdf_annotate_service.dart';
 import '../widgets/pdf_pages.dart';
+import '../widgets/pdf_tool_capsule.dart';
 
 /// Edit page for an opened PDF: top bar with back, name and Save; pages in
 /// the middle; a docked capsule with Highlight, Sign, Lock and Compress.
@@ -529,142 +530,43 @@ class _PdfEditScreenState extends State<PdfEditScreen> {
   }
 
   Widget _buildCapsuleBar() {
-    // Four equal items; shrink a little on narrow phones.
-    final itemWidth = ((MediaQuery.sizeOf(context).width - 56) / 4).clamp(58.0, 74.0);
-    return Container(
-      color: Colors.black,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-          child: Center(
-            // heightFactor: 1 keeps the bar as tall as the capsule; a plain
-            // Center here would fill the whole screen height.
-            heightFactor: 1,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF26282D),
-                borderRadius: BorderRadius.circular(40),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _CapsuleItem(
-                    key: _highlightKey,
-                    icon: Icons.border_color_rounded,
-                    label: 'Highlight',
-                    width: itemWidth,
-                    active: _highlighting,
-                    activeColor: _color,
-                    onTap: _onHighlightTap,
-                  ),
-                  _CapsuleItem(
-                    icon: Icons.draw_rounded,
-                    label: 'Sign',
-                    width: itemWidth,
-                    onTap: () => _openTool((path) => ToolActions.openSignature(context, pdfPath: path)),
-                  ),
-                  _CapsuleItem(
-                    icon: Icons.lock_outline_rounded,
-                    label: 'Lock',
-                    width: itemWidth,
-                    onTap: () => _openTool((path) => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => PdfLockScreen(initialPdfPath: path)),
-                        )),
-                  ),
-                  _CapsuleItem(
-                    icon: Icons.compress_rounded,
-                    label: 'Compress',
-                    width: itemWidth,
-                    onTap: () => _openTool((path) => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => PdfCompressScreen(initialPdfPath: path)),
-                        )),
-                  ),
-                ],
-              ),
-            ),
-          ),
+    final itemWidth = PdfToolCapsule.itemWidth(context, 4);
+    return PdfToolCapsule(
+      children: [
+        PdfCapsuleItem(
+          key: _highlightKey,
+          icon: Icons.border_color_rounded,
+          label: 'Highlight',
+          width: itemWidth,
+          active: _highlighting,
+          activeColor: _color,
+          onTap: _onHighlightTap,
         ),
-      ),
-    );
-  }
-}
-
-/// Equal-width item in the docked tool capsule.
-class _CapsuleItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool active;
-  final Color? activeColor;
-  final VoidCallback onTap;
-  final double width;
-
-  const _CapsuleItem({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.width,
-    this.active = false,
-    this.activeColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      selected: active,
-      button: true,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: width,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: active ? Colors.white.withValues(alpha: 0.12) : Colors.transparent,
-            borderRadius: BorderRadius.circular(30),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(icon, size: 22, color: Colors.white),
-                  if (active && activeColor != null)
-                    Positioned(
-                      right: -6,
-                      bottom: -3,
-                      child: Container(
-                        width: 11,
-                        height: 11,
-                        decoration: BoxDecoration(
-                          color: activeColor,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF26282D), width: 2),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: active ? Colors.white : Colors.white70,
-                  fontSize: 11.5,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
+        PdfCapsuleItem(
+          icon: Icons.draw_rounded,
+          label: 'Sign',
+          width: itemWidth,
+          onTap: () => _openTool((path) => ToolActions.openSignature(context, pdfPath: path)),
         ),
-      ),
+        PdfCapsuleItem(
+          icon: Icons.lock_outline_rounded,
+          label: 'Lock',
+          width: itemWidth,
+          onTap: () => _openTool((path) => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PdfLockScreen(initialPdfPath: path)),
+              )),
+        ),
+        PdfCapsuleItem(
+          icon: Icons.compress_rounded,
+          label: 'Compress',
+          width: itemWidth,
+          onTap: () => _openTool((path) => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PdfCompressScreen(initialPdfPath: path)),
+              )),
+        ),
+      ],
     );
   }
 }

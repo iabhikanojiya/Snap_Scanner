@@ -28,6 +28,24 @@ class HighlightStroke {
   }) : points = points ?? [];
 }
 
+/// A highlight over text: one box per line, in normalised coordinates.
+class HighlightBox {
+  final int pageIndex;
+  final Color color;
+  final Rect rect;
+
+  const HighlightBox({required this.pageIndex, required this.color, required this.rect});
+}
+
+/// A word on a page, in normalised coordinates; [line] orders words into
+/// lines (reading order), for text-snapped highlighting.
+class PdfWord {
+  final Rect rect;
+  final int line;
+
+  const PdfWord(this.rect, this.line);
+}
+
 /// Text search and highlight burn-in for the in-app viewer (off the UI
 /// thread, using the Syncfusion PDF library the app already ships).
 class PdfAnnotateService {
@@ -67,9 +85,52 @@ class PdfAnnotateService {
     }
   }
 
-  /// Returns the PDF at [path] with [strokes] drawn in as translucent
-  /// highlighter ink.
-  static Future<List<int>> applyHighlights(String path, List<HighlightStroke> strokes) async {
+  /// Words of every page, in reading order (index = page index). Pages
+  /// without a text layer (e.g. scans) get an empty list.
+  static Future<List<List<PdfWord>>> extractWords(String path, int pageCount) async {
+    final bytes = await File(path).readAsBytes();
+    final raw = await compute(_wordsIsolate, bytes);
+    final pages = List.generate(pageCount, (_) => <PdfWord>[]);
+    for (final w in raw) {
+      if (w.$1 < pageCount) pages[w.$1].add(PdfWord(Rect.fromLTRB(w.$3, w.$4, w.$5, w.$6), w.$2));
+    }
+    return pages;
+  }
+
+  static List<(int, int, double, double, double, double)> _wordsIsolate(Uint8List bytes) {
+    final doc = sf.PdfDocument(inputBytes: bytes);
+    try {
+      final result = <(int, int, double, double, double, double)>[];
+      final lines = sf.PdfTextExtractor(doc).extractTextLines();
+      for (var l = 0; l < lines.length; l++) {
+        final line = lines[l];
+        final size = doc.pages[line.pageIndex].size;
+        for (final word in line.wordCollection) {
+          if (word.text.trim().isEmpty) continue;
+          final b = word.bounds;
+          result.add((
+            line.pageIndex,
+            l,
+            b.left / size.width,
+            b.top / size.height,
+            b.right / size.width,
+            b.bottom / size.height,
+          ));
+        }
+      }
+      return result;
+    } finally {
+      doc.dispose();
+    }
+  }
+
+  /// Returns the PDF at [path] with [strokes] and [boxes] drawn in as
+  /// translucent highlighter ink.
+  static Future<List<int>> applyHighlights(
+    String path,
+    List<HighlightStroke> strokes, {
+    List<HighlightBox> boxes = const [],
+  }) async {
     final bytes = await File(path).readAsBytes();
     final data = [
       for (final s in strokes)
@@ -80,6 +141,12 @@ class PdfAnnotateService {
             'width': s.width,
             'points': [for (final p in s.points) [p.dx, p.dy]],
           },
+      for (final b in boxes)
+        {
+          'page': b.pageIndex,
+          'color': b.color.toARGB32(),
+          'rect': [b.rect.left, b.rect.top, b.rect.right, b.rect.bottom],
+        },
     ];
     return compute(_highlightIsolate, (bytes, data));
   }
@@ -92,6 +159,23 @@ class PdfAnnotateService {
         final page = doc.pages[pageIndex];
         final size = page.size;
         final argb = stroke['color']! as int;
+        final box = stroke['rect'] as List<double>?;
+        if (box != null) {
+          final graphics = page.graphics;
+          final state = graphics.save();
+          graphics.setTransparency(highlightOpacity, mode: sf.PdfBlendMode.multiply);
+          graphics.drawRectangle(
+            brush: sf.PdfSolidBrush(sf.PdfColor((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF)),
+            bounds: Rect.fromLTRB(
+              box[0] * size.width,
+              box[1] * size.height,
+              box[2] * size.width,
+              box[3] * size.height,
+            ),
+          );
+          graphics.restore(state);
+          continue;
+        }
         final points = (stroke['points']! as List).cast<List<double>>();
         final pen = sf.PdfPen(
           sf.PdfColor((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF),

@@ -56,6 +56,11 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
   final _searchFocus = FocusNode();
   PageRoute<dynamic>? _route;
 
+  /// Multi-selection on My PDFs; kept by id so it survives scrolling
+  /// and reloads.
+  final Set<String> _selectedIds = {};
+  bool get _selecting => _selectedIds.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -96,6 +101,9 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
         _files = results[0] as List<PdfFileModel>;
         _folders = results[1] as List<FolderModel>;
         _isLoading = false;
+        // Drop selections for files that no longer exist.
+        final ids = {for (final f in _files) f.id};
+        _selectedIds.retainWhere(ids.contains);
       });
     } catch (e) {
       debugPrint('[PdfHome] load failed: $e');
@@ -204,6 +212,34 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
     );
   }
 
+  // ---------------------------------------------------------------- selection
+
+  void _toggleSelected(PdfFileModel file) {
+    setState(() {
+      if (!_selectedIds.remove(file.id)) _selectedIds.add(file.id);
+    });
+  }
+
+  void _clearSelection() {
+    if (_selecting) setState(_selectedIds.clear);
+  }
+
+  List<PdfFileModel> get _selectedFiles =>
+      _files.where((f) => _selectedIds.contains(f.id)).toList();
+
+  void _shareSelected() => PdfFileActions.shareFiles(context, _selectedFiles);
+
+  void _deleteSelected() {
+    PdfFileActions.showDeleteSelectedConfirmation(
+      context,
+      _selectedFiles,
+      onChanged: () {
+        _clearSelection();
+        _loadAll();
+      },
+    );
+  }
+
   Future<void> _createFolder() async {
     final folder = await showCreateFolderDialog(context);
     if (folder != null) _loadAll();
@@ -218,45 +254,74 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.background,
-      child: Column(
-        children: [
-          BlueHeader(
-            title: 'Snap Scanner',
-            actions: [
-              HeaderIconButton(
-                icon: _searchOpen ? Icons.close_rounded : Icons.search_rounded,
-                tooltip: _searchOpen ? 'Close search' : 'Search',
-                active: _searchOpen,
-                onPressed: _toggleSearch,
-              ),
-              HeaderIconButton(
-                icon: Icons.sort_rounded,
-                tooltip: 'Sort',
-                onPressed: _showSortOptions,
-              ),
-            ],
-            bottom: Column(
-              children: [
-                if (_searchOpen) ...[
-                  _buildSearchField(),
-                  const SizedBox(height: 12),
+    // Back while selecting only exits selection mode.
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _clearSelection();
+      },
+      child: Container(
+        color: AppColors.background,
+        child: Column(
+          children: [
+            if (_selecting)
+              BlueHeader(
+                title: '${_selectedIds.length} selected',
+                leading: IconButton(
+                  tooltip: 'Cancel',
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: _clearSelection,
+                ),
+                actions: [
+                  HeaderIconButton(
+                    icon: Icons.share_rounded,
+                    tooltip: 'Share',
+                    onPressed: _shareSelected,
+                  ),
+                  HeaderIconButton(
+                    icon: Icons.delete_outline_rounded,
+                    tooltip: 'Delete',
+                    onPressed: _deleteSelected,
+                  ),
                 ],
-                _buildSectionSwitcher(),
-              ],
+              )
+            else
+              BlueHeader(
+                title: 'Snap Scanner',
+                actions: [
+                  HeaderIconButton(
+                    icon: _searchOpen ? Icons.close_rounded : Icons.search_rounded,
+                    tooltip: _searchOpen ? 'Close search' : 'Search',
+                    active: _searchOpen,
+                    onPressed: _toggleSearch,
+                  ),
+                  HeaderIconButton(
+                    icon: Icons.sort_rounded,
+                    tooltip: 'Sort',
+                    onPressed: _showSortOptions,
+                  ),
+                ],
+                bottom: Column(
+                  children: [
+                    if (_searchOpen) ...[
+                      _buildSearchField(),
+                      const SizedBox(height: 12),
+                    ],
+                    _buildSectionSwitcher(),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: IndexedStack(
+                index: _section,
+                children: [
+                  _buildMyPdfs(),
+                  _buildFolders(),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _section,
-              children: [
-                _buildMyPdfs(),
-                _buildFolders(),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -300,7 +365,10 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
       return Expanded(
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() => _section = index),
+          onTap: () => setState(() {
+            _section = index;
+            _selectedIds.clear();
+          }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
@@ -375,7 +443,11 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
               final value = PdfFileActions.filterOptions[index].$2;
               final isSelected = _selectedFilter == value;
               return GestureDetector(
-                onTap: () => setState(() => _selectedFilter = value),
+                onTap: () => setState(() {
+                  _selectedFilter = value;
+                  // Don't act on files the new filter hides.
+                  _selectedIds.clear();
+                }),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -453,7 +525,10 @@ class PdfHomeScreenState extends State<PdfHomeScreen> with RouteAware {
         return PdfListItem(
           key: ValueKey(file.id),
           file: file,
-          onTap: () => _showFileActions(file),
+          selected: _selecting ? _selectedIds.contains(file.id) : null,
+          // While selecting, a tap toggles instead of opening the file.
+          onTap: () => _selecting ? _toggleSelected(file) : _showFileActions(file),
+          onLongPress: () => _toggleSelected(file),
         );
       },
     );

@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:snap_scanner/core/exceptions/app_exceptions.dart';
@@ -23,6 +22,7 @@ import '../../compress/screens/pdf_compress_screen.dart';
 import '../../lock/screens/pdf_lock_screen.dart';
 import '../../merge/screens/pdf_merge_screen.dart';
 import '../../split/screens/pdf_split_screen.dart';
+import '../../viewer/screens/pdf_viewer_screen.dart';
 import '../../lock/services/pdf_lock_service.dart';
 
 /// Follow-up tools offered on the success screen. Each tool screen picks the
@@ -167,17 +167,16 @@ class _SuccessScreenState extends State<SuccessScreen> {
   }
 
   Future<void> _openFile() async {
-    try {
-      final result = await OpenFilex.open(_file.path);
-      if (result.type != ResultType.done && mounted) {
-        _showErrorSnackBar('Could not open the file');
-      }
-    } catch (e) {
-      debugPrint('Open failed: $e');
-      if (mounted) {
-        _showErrorSnackBar('No app available to open this PDF');
-      }
+    // In-app viewer instead of the Android "Open with" chooser.
+    if (!await _file.exists()) {
+      if (mounted) _showErrorSnackBar('Could not open the file');
+      return;
     }
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PdfViewerScreen(path: _file.path)),
+    );
   }
 
   Future<void> _downloadFile(BuildContext context) async {

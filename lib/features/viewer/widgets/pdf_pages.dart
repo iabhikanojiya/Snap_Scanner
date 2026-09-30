@@ -93,12 +93,20 @@ class PdfPageTile extends StatelessWidget {
   final List<HighlightStroke> strokes;
   final List<(Rect, bool)> matches;
 
+  /// Text highlights (normalised rect and colour).
+  final List<(Rect, Color)> boxes;
+
+  /// Outline around the selected highlight, if any.
+  final Rect? outline;
+
   const PdfPageTile({
     super.key,
     required this.image,
     required this.aspectRatio,
     this.strokes = const [],
     this.matches = const [],
+    this.boxes = const [],
+    this.outline,
   });
 
   @override
@@ -132,7 +140,9 @@ class PdfPageTile extends StatelessWidget {
               },
             ),
             IgnorePointer(
-              child: CustomPaint(painter: PdfOverlayPainter(strokes: strokes, matches: matches)),
+              child: CustomPaint(
+                painter: PdfOverlayPainter(strokes: strokes, matches: matches, boxes: boxes, outline: outline),
+              ),
             ),
           ],
         ),
@@ -144,11 +154,29 @@ class PdfPageTile extends StatelessWidget {
 class PdfOverlayPainter extends CustomPainter {
   final List<HighlightStroke> strokes;
   final List<(Rect, bool)> matches;
+  final List<(Rect, Color)> boxes;
+  final Rect? outline;
 
-  PdfOverlayPainter({required this.strokes, required this.matches});
+  PdfOverlayPainter({
+    required this.strokes,
+    required this.matches,
+    this.boxes = const [],
+    this.outline,
+  });
+
+  Rect _scale(Rect r, Size size) =>
+      Rect.fromLTRB(r.left * size.width, r.top * size.height, r.right * size.width, r.bottom * size.height);
 
   @override
   void paint(Canvas canvas, Size size) {
+    for (final (rect, color) in boxes) {
+      canvas.drawRect(
+        _scale(rect, size),
+        Paint()
+          ..color = color.withValues(alpha: PdfAnnotateService.highlightOpacity)
+          ..blendMode = BlendMode.multiply,
+      );
+    }
     for (final (rect, current) in matches) {
       canvas.drawRect(
         Rect.fromLTRB(
@@ -182,6 +210,16 @@ class PdfOverlayPainter extends CustomPainter {
         path.lineTo(o.dx, o.dy);
       }
       canvas.drawPath(path, paint..style = PaintingStyle.stroke);
+    }
+    final outline = this.outline;
+    if (outline != null) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(_scale(outline, size).inflate(4), const Radius.circular(4)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = AppColors.brandRed,
+      );
     }
   }
 

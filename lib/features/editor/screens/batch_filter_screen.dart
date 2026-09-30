@@ -249,7 +249,15 @@ class _BatchFilterScreenState extends State<BatchFilterScreen> {
                         final page = provider.pages[index];
                         return Padding(
                           padding: const EdgeInsets.all(16.0),
-                          child: Image.file(page.displayFile, fit: BoxFit.contain),
+                          // Decoded at screen width, not the photo's full
+                          // resolution (display only; filters use the file).
+                          child: Image.file(
+                            page.displayFile,
+                            fit: BoxFit.contain,
+                            cacheWidth: (MediaQuery.sizeOf(context).width *
+                                    MediaQuery.devicePixelRatioOf(context))
+                                .round(),
+                          ),
                         );
                       },
                     ),

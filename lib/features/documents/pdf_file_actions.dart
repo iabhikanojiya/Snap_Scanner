@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -14,6 +13,7 @@ import '../../core/widgets/tool_shortcut_card.dart';
 import '../compress/screens/pdf_compress_screen.dart';
 import '../home/tool_actions.dart';
 import '../lock/screens/pdf_lock_screen.dart';
+import '../viewer/screens/pdf_viewer_screen.dart';
 
 class PdfFileExtraAction {
   final IconData icon;
@@ -139,9 +139,13 @@ class PdfFileActions {
             AppDialogOption(
               icon: Icons.open_in_new,
               label: 'Open',
-              onTap: () async {
+              onTap: () {
                 Navigator.pop(sheetContext);
-                await OpenFilex.open(file.path);
+                // In-app viewer instead of the Android "Open with" chooser.
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => PdfViewerScreen(path: file.path)),
+                );
               },
             ),
             AppDialogOption(
@@ -243,6 +247,68 @@ class PdfFileActions {
               onChanged();
             }
           }
+        },
+        secondaryLabel: 'Cancel',
+        onSecondary: () => Navigator.pop(dialogContext),
+      ),
+    );
+  }
+
+  /// Shares several PDFs at once (multi-selection on My PDFs).
+  static Future<void> shareFiles(BuildContext context, List<PdfFileModel> files) async {
+    final existing = [
+      for (final file in files)
+        if (File(file.path).existsSync()) XFile(file.path),
+    ];
+    if (existing.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The selected files could not be found')),
+      );
+      return;
+    }
+    try {
+      AnalyticsService.instance.logPdfShared();
+      await SharePlus.instance.share(ShareParams(files: existing));
+    } catch (e) {
+      debugPrint('[PdfFileActions] share failed: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open share sheet')),
+        );
+      }
+    }
+  }
+
+  /// Confirms, then deletes several PDFs (files and database rows).
+  /// Nothing is deleted unless the user confirms.
+  static void showDeleteSelectedConfirmation(
+    BuildContext context,
+    List<PdfFileModel> files, {
+    required VoidCallback onChanged,
+  }) {
+    final count = files.length;
+    showAppDialog(
+      context: context,
+      builder: (dialogContext) => AppDialog(
+        tone: AppDialogTone.destructive,
+        icon: Icons.delete_outline_rounded,
+        title: count == 1 ? 'Delete 1 PDF' : 'Delete $count PDFs',
+        description: count == 1
+            ? 'Are you sure you want to delete "${files.first.name}"?'
+            : 'Are you sure you want to delete these $count PDFs?',
+        primaryLabel: 'Delete',
+        onPrimary: () async {
+          for (final file in files) {
+            try {
+              await StorageService.deleteFile(file.path);
+              await DatabaseService.deleteFile(file.id);
+              AnalyticsService.instance.logPdfDeleted();
+            } catch (e) {
+              debugPrint('[PdfFileActions] delete ${file.id} failed: $e');
+            }
+          }
+          if (dialogContext.mounted) Navigator.pop(dialogContext);
+          onChanged();
         },
         secondaryLabel: 'Cancel',
         onSecondary: () => Navigator.pop(dialogContext),

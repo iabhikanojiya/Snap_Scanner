@@ -6,6 +6,7 @@ class ScanProvider extends ChangeNotifier {
   List<ScannedPage> _pages = [];
   String _toolType = 'scan_pdf';
   String? _appendToPdfPath;
+  String? _targetFolderId;
 
   List<ScannedPage> get pages => _pages;
   String get toolType => _toolType;
@@ -16,6 +17,14 @@ class ScanProvider extends ChangeNotifier {
 
   void setAppendTarget(String? pdfPath) {
     _appendToPdfPath = pdfPath;
+  }
+
+  /// When set, the generated PDF is also added to this folder
+  /// (only for scans started from a folder).
+  String? get targetFolderId => _targetFolderId;
+
+  void setTargetFolder(String? folderId) {
+    _targetFolderId = folderId;
   }
 
   void setToolType(String type) {
@@ -53,6 +62,7 @@ class ScanProvider extends ChangeNotifier {
     _pages = [];
     _toolType = 'scan_pdf';
     _appendToPdfPath = null;
+    _targetFolderId = null;
     notifyListeners();
   }
 }

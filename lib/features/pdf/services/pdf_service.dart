@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/models/scanned_page.dart';
 import '../../../core/models/pdf_file_model.dart';
 import '../../../core/services/database_service.dart';
+import '../../../core/services/folder_service.dart';
 import '../../../core/services/storage_service.dart';
 import '../../../core/utils/image_validator.dart';
 import '../../../core/exceptions/app_exceptions.dart';
@@ -21,6 +22,8 @@ class PdfService {
     void Function(String step)? onProgress,
     /// Existing PDF whose pages go before the new pages.
     String? prependPdfPath,
+    /// Folder the new PDF is added to (scan started from a folder).
+    String? folderId,
   }) async {
     onProgress?.call('validating');
 
@@ -76,6 +79,17 @@ class PdfService {
     );
 
     await DatabaseService.insertFile(pdfModel);
+
+    // Only linked once the PDF and its row exist, so a failed or cancelled
+    // scan never leaves a folder entry behind.
+    if (folderId != null) {
+      try {
+        await FolderService.addFileToFolder(pdfModel.id, folderId);
+      } catch (e) {
+        // The PDF is still saved in My PDFs.
+        debugPrint('[PdfService] adding to folder failed: $e');
+      }
+    }
 
     onProgress?.call('done');
     return file;

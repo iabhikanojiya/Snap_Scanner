@@ -20,7 +20,9 @@ enum _CameraUiState {
 
 class ScannerScreen extends StatefulWidget {
   final bool appendMode;
-  const ScannerScreen({super.key, this.appendMode = false});
+  /// Folder the resulting PDF is added to (scan started from a folder).
+  final String? folderId;
+  const ScannerScreen({super.key, this.appendMode = false, this.folderId});
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -47,6 +49,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       if (!widget.appendMode) {
         provider.clearPages();
         provider.setToolType('scan_pdf');
+        provider.setTargetFolder(widget.folderId);
       }
     });
   }
@@ -585,7 +588,8 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                                 border: Border.all(color: Colors.white, width: 2),
                                 borderRadius: BorderRadius.circular(8),
                                 image: DecorationImage(
-                                  image: FileImage(page.displayFile),
+                                  // 60px thumbnail: don't decode the full photo.
+                                  image: ResizeImage(FileImage(page.displayFile), width: 180),
                                   fit: BoxFit.cover,
                                 ),
                               ),

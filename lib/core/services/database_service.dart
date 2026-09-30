@@ -114,6 +114,12 @@ class DatabaseService {
     );
   }
 
+  /// Keeps the stored size right after a PDF is rewritten in place.
+  static Future<void> updateFileSizeByPath(String path, int size) async {
+    final db = await database;
+    await db.update('pdf_files', {'size': size}, where: 'path = ?', whereArgs: [path]);
+  }
+
   static Future<void> updateFileMetadata(String id, String newName, String newPath) async {
     final db = await database;
     await db.update(

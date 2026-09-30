@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +29,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   bool _isBusy = false;
+
+  // Drag-and-drop reordering of the page grid.
+  final ScrollController _gridScroll = ScrollController();
+  final GlobalKey _gridKey = GlobalKey();
+  String? _draggingId;
+  Timer? _autoScroll;
+  double _autoScrollSpeed = 0;
   String _busyMessage = '';
 
   String? get _appendTarget =>
@@ -49,16 +57,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   @override
   void dispose() {
+    _autoScroll?.cancel();
+    _gridScroll.dispose();
     _nameController.dispose();
     super.dispose();
   }
 
   Future<void> _addPages() async {
-    final camera = await ToolActions.askPageSource(context);
-    if (camera == null || !mounted) return;
+    final source = await ToolActions.askPageSource(context, includePdf: true);
+    if (source == null || !mounted) return;
+    if (source == PageSource.pdf) return _importPdfPages();
     final provider = Provider.of<ScanProvider>(context, listen: false);
     final before = provider.pages.length;
-    final added = await ToolActions.addPagesFrom(context, camera: camera);
+    final added = await ToolActions.addPagesFrom(context, camera: source == PageSource.camera);
     if (added == 0 || !mounted) return;
 
     // New pages get the same default Enhance filter as the filter step.
@@ -75,6 +86,75 @@ class _ReviewScreenState extends State<ReviewScreen> {
       debugPrint('Enhance new pages failed: $e');
     } finally {
       if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  /// Appends every page of a picked PDF after the current pages. They are
+  /// already clean digital pages, so the Enhance filter is not applied.
+  Future<void> _importPdfPages() async {
+    try {
+      await ToolActions.addPagesFromPdf(
+        context,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            _isBusy = true;
+            _busyMessage = 'Importing page ${done + 1} of $total...';
+          });
+        },
+      );
+    } catch (e) {
+      debugPrint('Import PDF pages failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't import this PDF. It may be password-protected or damaged."),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  /// Moves the dragged page to [toIndex] in the real page list.
+  void _movePage(ScanProvider provider, String draggedId, int toIndex) {
+    final from = provider.pages.indexWhere((p) => p.id == draggedId);
+    if (from < 0 || from == toIndex) return;
+    // reorderPages takes ReorderableListView's (pre-removal) target index.
+    provider.reorderPages(from, toIndex > from ? toIndex + 1 : toIndex);
+  }
+
+  void _endDrag() {
+    _autoScroll?.cancel();
+    _autoScroll = null;
+    if (mounted) setState(() => _draggingId = null);
+  }
+
+  /// While dragging near the top or bottom of the grid, scroll it.
+  void _onDragPointerMove(PointerMoveEvent event) {
+    if (_draggingId == null) return;
+    final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !_gridScroll.hasClients) return;
+    const edge = 72.0, maxSpeed = 14.0;
+    final y = box.globalToLocal(event.position).dy;
+    final height = box.size.height;
+    _autoScrollSpeed = y < edge
+        ? -maxSpeed * (edge - y) / edge
+        : y > height - edge
+            ? maxSpeed * (y - (height - edge)) / edge
+            : 0;
+    if (_autoScrollSpeed == 0) {
+      _autoScroll?.cancel();
+      _autoScroll = null;
+    } else {
+      _autoScroll ??= Timer.periodic(const Duration(milliseconds: 16), (_) {
+        if (!_gridScroll.hasClients) return;
+        final position = _gridScroll.position;
+        _gridScroll.jumpTo(
+          (position.pixels + _autoScrollSpeed).clamp(0.0, position.maxScrollExtent),
+        );
+      });
     }
   }
 
@@ -117,6 +197,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         format: PdfPageFormat.a4,
         toolType: provider.toolType,
         prependPdfPath: target,
+        folderId: provider.targetFolderId,
         onProgress: (step) {
           if (!mounted) return;
           setState(() {
@@ -293,57 +374,142 @@ class _ReviewScreenState extends State<ReviewScreen> {
                             style: TextStyle(color: AppColors.textSecondary)),
                       );
                     }
-                    return ReorderableListView.builder(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                      itemCount: provider.pages.length,
-                      onReorder: provider.reorderPages,
-                      buildDefaultDragHandles: false,
-                      itemBuilder: (context, index) {
-                        final page = provider.pages[index];
-                        return Container(
-                          key: ValueKey(page.id),
-                          margin: const EdgeInsets.only(bottom: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
-                            leading: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: SizedBox(
-                                width: 46,
-                                height: 62,
-                                child: Image.file(
-                                  page.displayFile,
-                                  fit: BoxFit.cover,
-                                  cacheWidth: 140,
-                                  gaplessPlayback: true,
-                                ),
-                              ),
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Two columns; each card is a page preview plus a
+                        // row with the page number, remove and drag handle.
+                        // Width: screen - side padding - spacing, split in
+                        // two; the card's border and padding come out of
+                        // that, and the border is counted in the height too.
+                        const side = 20.0, spacing = 12.0, footer = 44.0;
+                        const border = 1.0, pad = 8.0;
+                        final cellWidth = (constraints.maxWidth - side * 2 - spacing) / 2;
+                        final previewWidth = cellWidth - pad * 2 - border * 2;
+                        final previewHeight = previewWidth * 1.3;
+                        final cacheWidth = (previewWidth * MediaQuery.devicePixelRatioOf(context)).round();
+                        final extent = border * 2 + pad + previewHeight + footer;
+
+                        // The page card; [dragHandle] is null in the drag preview.
+                        Widget card(int index, {Widget? dragHandle}) {
+                          final page = provider.pages[index];
+                          return Container(
+                            padding: const EdgeInsets.fromLTRB(pad, pad, pad, 0),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border, width: border),
                             ),
-                            title: Text(
-                              'Page ${index + 1}',
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
+                            child: Column(
                               children: [
-                                IconButton(
-                                  tooltip: 'Remove page',
-                                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.brandRed),
-                                  onPressed: _isBusy ? null : () => provider.removePage(page.id),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    height: previewHeight,
+                                    width: previewWidth,
+                                    color: AppColors.background,
+                                    child: Image.file(
+                                      page.displayFile,
+                                      fit: BoxFit.contain,
+                                      cacheWidth: cacheWidth,
+                                      gaplessPlayback: true,
+                                    ),
+                                  ),
                                 ),
-                                ReorderableDragStartListener(
-                                  index: index,
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(8),
-                                    child: Icon(Icons.drag_indicator_rounded, color: AppColors.textSecondary),
+                                SizedBox(
+                                  height: footer,
+                                  child: Row(
+                                    children: [
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          'Page ${index + 1}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Remove page',
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(Icons.delete_outline_rounded, color: AppColors.brandRed, size: 22),
+                                        onPressed: _isBusy || _draggingId != null
+                                            ? null
+                                            : () => provider.removePage(page.id),
+                                      ),
+                                      dragHandle ??
+                                          const Padding(
+                                            padding: EdgeInsets.all(6),
+                                            child: Icon(Icons.drag_indicator_rounded, color: AppColors.textSecondary),
+                                          ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
+                          );
+                        }
+
+                        // What follows the finger while dragging.
+                        Widget feedback(int index) => Material(
+                              color: Colors.transparent,
+                              elevation: 8,
+                              borderRadius: BorderRadius.circular(16),
+                              child: SizedBox(width: cellWidth, height: extent, child: card(index)),
+                            );
+
+                        return Listener(
+                          onPointerMove: _onDragPointerMove,
+                          child: GridView.builder(
+                            key: _gridKey,
+                            controller: _gridScroll,
+                            padding: const EdgeInsets.fromLTRB(side, 8, side, 16),
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: spacing,
+                              mainAxisSpacing: spacing,
+                              mainAxisExtent: extent,
+                            ),
+                            itemCount: provider.pages.length,
+                            itemBuilder: (context, index) {
+                              final page = provider.pages[index];
+                              final dragging = page.id == _draggingId;
+                              // Hovering over another card moves the dragged
+                              // page there straight away (the list itself
+                              // changes, so the grid reflows as you drag).
+                              return DragTarget<String>(
+                                key: ValueKey(page.id),
+                                onWillAcceptWithDetails: (details) {
+                                  _movePage(provider, details.data, index);
+                                  return details.data != page.id;
+                                },
+                                builder: (context, _, _) => LongPressDraggable<String>(
+                                  // Long press anywhere on a card starts dragging.
+                                  data: page.id,
+                                  maxSimultaneousDrags: _isBusy ? 0 : 1,
+                                  feedback: feedback(index),
+                                  onDragStarted: () => setState(() => _draggingId = page.id),
+                                  onDragEnd: (_) => _endDrag(),
+                                  child: Opacity(
+                                    opacity: dragging ? 0.3 : 1,
+                                    child: card(
+                                      index,
+                                      // Drag immediately from the handle.
+                                      dragHandle: Draggable<String>(
+                                        data: page.id,
+                                        maxSimultaneousDrags: _isBusy ? 0 : 1,
+                                        feedback: feedback(index),
+                                        onDragStarted: () => setState(() => _draggingId = page.id),
+                                        onDragEnd: (_) => _endDrag(),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(6),
+                                          child: Icon(Icons.drag_indicator_rounded, color: AppColors.textSecondary),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         );
                       },

@@ -9,8 +9,18 @@ import 'pdf_thumbnail.dart';
 class PdfListItem extends StatelessWidget {
   final PdfFileModel file;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
-  const PdfListItem({super.key, required this.file, required this.onTap});
+  /// Null outside selection mode; otherwise whether this file is selected.
+  final bool? selected;
+
+  const PdfListItem({
+    super.key,
+    required this.file,
+    required this.onTap,
+    this.onLongPress,
+    this.selected,
+  });
 
   static String _toolLabel(String toolType) {
     for (final option in PdfFileActions.filterOptions) {
@@ -21,17 +31,21 @@ class PdfListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selected = this.selected;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: AppColors.card,
+        color: selected == true ? AppColors.brandRed.withValues(alpha: 0.06) : AppColors.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: AppColors.border),
+          side: selected == true
+              ? const BorderSide(color: AppColors.brandRed, width: 1.5)
+              : const BorderSide(color: AppColors.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
             child: Row(
@@ -76,11 +90,21 @@ class PdfListItem extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  tooltip: 'More',
-                  onPressed: onTap,
-                  icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
-                ),
+                if (selected == null)
+                  IconButton(
+                    tooltip: 'More',
+                    onPressed: onTap,
+                    icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
+                  )
+                else
+                  IconButton(
+                    tooltip: selected ? 'Deselect' : 'Select',
+                    onPressed: onTap,
+                    icon: Icon(
+                      selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                      color: selected ? AppColors.brandRed : AppColors.textSecondary,
+                    ),
+                  ),
               ],
             ),
           ),

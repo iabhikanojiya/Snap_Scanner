@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -18,10 +20,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final onboardingCompleted = AppPrefsService.isOnboardingCompleted();
   await Firebase.initializeApp();
-  await Future.wait([
+  // Not awaited: MobileAds.initialize() goes to the network and could keep
+  // the splash up for seconds on a slow connection. Ads load once it's done
+  // (the banner controller already retries).
+  unawaited(Future.wait([
     AdService.instance.initialize(),
     BannerAdService.instance.initialize(),
-  ]);
+  ]).then((_) {}, onError: (Object e) => debugPrint('[Main] ads init failed: $e')));
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
   AnalyticsService.instance.logAppOpen();
   final showOnboarding = !await onboardingCompleted;

@@ -7,13 +7,17 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/tool_ui.dart';
+import '../../compress/screens/pdf_compress_screen.dart';
+import '../../home/tool_actions.dart';
+import '../../lock/screens/pdf_lock_screen.dart';
 import '../services/pdf_annotate_service.dart';
 import '../widgets/pdf_pages.dart';
-import 'pdf_edit_screen.dart';
+import '../widgets/pdf_tool_capsule.dart';
+import 'pdf_highlight_screen.dart';
 
-/// Reader for PDFs opened with Snap Scanner from other apps: black top bar
-/// (back, name, search, share, download), zoomable pages, and a red edit
-/// button that opens [PdfEditScreen].
+/// Reader for PDFs opened in Snap Scanner (from My PDFs or other apps):
+/// black top bar (back, name, search, share, download), zoomable pages and
+/// a docked tool capsule.
 class PdfViewerScreen extends StatefulWidget {
   final String path;
 
@@ -115,12 +119,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _openEditor() {
+  /// Capsule actions: entry points to the existing tools, all on this PDF.
+  /// The tools save their result as a new PDF, so this file (and the
+  /// viewer's state) is unchanged when the user comes back.
+  void _openTool(void Function() open) {
     if (_searchOpen) _closeSearch();
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => PdfEditScreen(path: widget.path, initialPage: _currentPage)),
-    );
+    open();
   }
 
   // ---------------------------------------------------------------- search
@@ -185,17 +189,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             : source == null
                 ? const Center(child: CircularProgressIndicator(color: Colors.white))
                 : _buildReader(source),
-        floatingActionButton: source == null
-            ? null
-            : FloatingActionButton(
-                heroTag: null,
-                tooltip: 'Edit',
-                onPressed: _openEditor,
-                backgroundColor: AppColors.brandRed,
-                foregroundColor: Colors.white,
-                shape: const CircleBorder(),
-                child: const Icon(Icons.edit_rounded),
-              ),
+        bottomNavigationBar: source == null ? null : _buildCapsuleBar(),
       ),
     );
   }
@@ -298,12 +292,11 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
               maxScale: 4,
               child: ListView.builder(
                 controller: _scroll,
-                // Bottom padding keeps the last page clear of the edit button.
                 padding: const EdgeInsets.fromLTRB(
                   PdfPagesLayout.side,
                   PdfPagesLayout.gap,
                   PdfPagesLayout.side,
-                  PdfPagesLayout.gap + 80,
+                  PdfPagesLayout.gap,
                 ),
                 itemCount: source.pageCount,
                 itemBuilder: (context, index) => Padding(
@@ -346,6 +339,71 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
           ),
       ],
     );
+  }
+
+  Widget _buildCapsuleBar() {
+    final itemWidth = PdfToolCapsule.itemWidth(context, 5);
+    return PdfToolCapsule(
+      children: [
+        PdfCapsuleItem(
+          icon: Icons.note_add_outlined,
+          label: 'Add Page',
+          width: itemWidth,
+          onTap: () => _openTool(() => ToolActions.addPagesToPdf(context, File(widget.path))),
+        ),
+        PdfCapsuleItem(
+          icon: Icons.draw_rounded,
+          label: 'Sign',
+          width: itemWidth,
+          onTap: () => _openTool(() => ToolActions.openSignature(context, pdfPath: widget.path)),
+        ),
+        PdfCapsuleItem(
+          icon: Icons.border_color_rounded,
+          label: 'Highlight',
+          width: itemWidth,
+          onTap: () => _openTool(_openHighlight),
+        ),
+        PdfCapsuleItem(
+          icon: Icons.lock_outline_rounded,
+          label: 'Lock',
+          width: itemWidth,
+          onTap: () => _openTool(() => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PdfLockScreen(initialPdfPath: widget.path)),
+              )),
+        ),
+        PdfCapsuleItem(
+          icon: Icons.compress_rounded,
+          label: 'Compress',
+          width: itemWidth,
+          onTap: () => _openTool(() => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PdfCompressScreen(initialPdfPath: widget.path)),
+              )),
+        ),
+      ],
+    );
+  }
+
+  /// Highlights are saved into this same file; re-render it afterwards.
+  Future<void> _openHighlight() async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => PdfHighlightScreen(path: widget.path, initialPage: _currentPage)),
+    );
+    if (saved != true || !mounted) return;
+    try {
+      final fresh = await PdfPageSource.open(widget.path);
+      if (!mounted) {
+        fresh.dispose();
+        return;
+      }
+      final old = _source;
+      setState(() => _source = fresh);
+      old?.dispose();
+    } catch (e) {
+      debugPrint('[Viewer] reload failed: $e');
+    }
   }
 
   Widget _buildError() {

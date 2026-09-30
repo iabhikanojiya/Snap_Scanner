@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pdfx/pdfx.dart' as px;
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -26,19 +29,24 @@ import 'package:snap_scanner/features/signature/screens/saved_signatures_screen.
 import 'package:snap_scanner/features/signature/services/signature_service.dart';
 import 'package:snap_scanner/features/resize_image/screens/resize_image_screen.dart';
 
+/// Where new pages come from in "Add pages".
+enum PageSource { camera, gallery, pdf }
+
 /// Entry points for the existing tool flows, moved unchanged out of
 /// ToolsScreen so the PDF tab's Scan CTA and the Tools grid share them.
 class ToolActions {
   ToolActions._();
 
-  static Future<void> openScanner(BuildContext context) async {
+  /// [folderId]: the scan was started from that folder, so the resulting
+  /// PDF is added to it. Null for the normal Scan flow.
+  static Future<void> openScanner(BuildContext context, {String? folderId}) async {
     // ML Kit Document Scanner is Android-only. Keep iOS behaviour unchanged.
     if (!Platform.isAndroid) {
       AnalyticsService.instance.logScanStarted();
       if (!context.mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => const ScannerScreen()),
+        MaterialPageRoute(builder: (context) => ScannerScreen(folderId: folderId)),
       );
       return;
     }
@@ -47,6 +55,7 @@ class ToolActions {
     final provider = Provider.of<ScanProvider>(context, listen: false);
     provider.clearPages();
     provider.setToolType('scan_pdf');
+    provider.setTargetFolder(folderId);
 
     List<String>? imagePaths;
     try {
@@ -102,10 +111,10 @@ class ToolActions {
     }
   }
 
-  /// Asks where new pages should come from. Returns true for camera,
-  /// false for gallery, null if cancelled.
-  static Future<bool?> askPageSource(BuildContext context) {
-    return showAppDialog<bool>(
+  /// Asks where new pages should come from; null if cancelled.
+  /// [includePdf] also offers importing the pages of an existing PDF.
+  static Future<PageSource?> askPageSource(BuildContext context, {bool includePdf = false}) {
+    return showAppDialog<PageSource>(
       context: context,
       builder: (ctx) => AppDialog(
         icon: Icons.note_add_outlined,
@@ -117,13 +126,19 @@ class ToolActions {
             AppDialogOption(
               icon: Icons.document_scanner_outlined,
               label: 'Scan with camera',
-              onTap: () => Navigator.pop(ctx, true),
+              onTap: () => Navigator.pop(ctx, PageSource.camera),
             ),
             AppDialogOption(
               icon: Icons.photo_library_outlined,
               label: 'Choose from gallery',
-              onTap: () => Navigator.pop(ctx, false),
+              onTap: () => Navigator.pop(ctx, PageSource.gallery),
             ),
+            if (includePdf)
+              AppDialogOption(
+                icon: Icons.picture_as_pdf_outlined,
+                label: 'Import from existing PDF',
+                onTap: () => Navigator.pop(ctx, PageSource.pdf),
+              ),
           ],
         ),
         secondaryLabel: 'Cancel',
@@ -182,14 +197,85 @@ class ToolActions {
     return provider.pages.length - before;
   }
 
-  /// "Add Page" on the success screen: new pages go through crop → filter →
-  /// review and are saved, after [pdf]'s pages, as a new PDF.
+  /// Longest side, in pixels, of a page imported from a PDF
+  /// (about A4 at 170 dpi: sharp, without huge files).
+  static const double _importedPageLongSide = 2000;
+
+  /// Appends every page of a picked PDF, in the PDF's order, as page images
+  /// (the same [ScannedPage]s the scanner and gallery produce). The picked
+  /// PDF is only read. All or nothing: if any page can't be rendered the
+  /// session is left unchanged and this throws. Returns 0 if cancelled.
+  /// [onProgress] is called before each page, once a PDF was picked.
+  static Future<int> addPagesFromPdf(
+    BuildContext context, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final provider = Provider.of<ScanProvider>(context, listen: false);
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      allowMultiple: false,
+    );
+    final path = result?.files.single.path;
+    if (path == null) return 0;
+
+    final doc = await px.PdfDocument.openFile(path);
+    final created = <File>[];
+    try {
+      final total = doc.pagesCount;
+      for (var i = 1; i <= total; i++) {
+        onProgress?.call(i - 1, total);
+        final page = await doc.getPage(i);
+        try {
+          final scale = _importedPageLongSide / math.max(page.width, page.height);
+          final image = await page.render(
+            width: page.width * scale,
+            height: page.height * scale,
+            format: px.PdfPageImageFormat.jpeg,
+            backgroundColor: '#FFFFFF',
+            quality: 90,
+          );
+          if (image == null) throw Exception('Page $i could not be rendered');
+          final file = await FileUtils.createPermanentFile(extension: 'jpg');
+          await file.writeAsBytes(image.bytes);
+          created.add(file);
+        } finally {
+          await page.close();
+        }
+      }
+    } catch (_) {
+      for (final file in created) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    } finally {
+      await doc.close();
+    }
+
+    for (final file in created) {
+      provider.addPage(ScannedPage(
+        id: const Uuid().v4(),
+        originalPath: file.path,
+        processedFile: file,
+      ));
+    }
+    return created.length;
+  }
+
+  /// "Add Page" on an existing PDF: new pages are saved, after [pdf]'s
+  /// pages, as a new PDF. Each source continues like its own tool:
+  /// gallery → crop → filter → review (Image to PDF); camera → review, the
+  /// Scan PDF flow (on iOS the in-app camera's pages still go through crop,
+  /// as in Scan PDF there).
   static Future<void> addPagesToPdf(BuildContext context, File pdf) async {
-    final camera = await askPageSource(context);
-    if (camera == null || !context.mounted) return;
+    final source = await askPageSource(context);
+    if (source == null || !context.mounted) return;
+    final camera = source == PageSource.camera;
     final provider = Provider.of<ScanProvider>(context, listen: false);
     provider.clearPages();
-    provider.setToolType('image_to_pdf');
+    provider.setToolType(camera ? 'scan_pdf' : 'image_to_pdf');
     provider.setAppendTarget(pdf.path);
     final added = await addPagesFrom(context, camera: camera);
     if (!context.mounted) return;
@@ -197,9 +283,12 @@ class ToolActions {
       provider.setAppendTarget(null);
       return;
     }
+    final skipCrop = camera && Platform.isAndroid;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const BatchCropScreen()),
+      MaterialPageRoute(
+        builder: (_) => skipCrop ? const ReviewScreen() : const BatchCropScreen(),
+      ),
     );
   }
 
